@@ -25,11 +25,24 @@ pub enum TokenKind {
     GreaterThan,
     LessThan,
     If,
+    Else,
     Fn,
     Let,
+    And,
+    Or,
+    Not,
+    Return,
     EOF,
 }
-fn char_to_token(c: char) -> Option<TokenKind> {
+
+#[derive(Debug, Clone)]
+pub enum State {
+    Default,
+    Identifier,
+    String,
+}
+
+pub fn char_to_token(c: char) -> Option<TokenKind> {
     match c {
         '(' => Some(TokenKind::LeftParen),
         ')' => Some(TokenKind::RightParen),
@@ -46,27 +59,109 @@ fn char_to_token(c: char) -> Option<TokenKind> {
     }
 }
 
+fn identify_token(s: &str) -> Option<TokenKind> {
+    match s {
+        "if" => Some(TokenKind::If),
+        "else" => Some(TokenKind::Else),
+        "and" => Some(TokenKind::And),
+        "or" => Some(TokenKind::Or),
+        "not" => Some(TokenKind::Not),
+        "return" => Some(TokenKind::Return),
+        "fn" => Some(TokenKind::Fn),
+        "let" => Some(TokenKind::Let),
+        _ => Some(TokenKind::Identifier),
+    }
+}
+
 pub fn lexer() -> Result<Vec<Token>, io::Error> {
     let source = fs::read_to_string("input.edt")?;
-    let mut data: Vec<Token> = Vec::new();
-    let mut line = 1;
+    let bytes = source.as_bytes();
+    let len = bytes.len();
 
-    for i in source.chars() {
-        if i == '\n' {
-            line += 1;
-            continue;
-        }
-        if i == ' ' || i == '\t' {
-            continue;
-        }
-        if let Some(kind) = char_to_token(i) {
-            let a = Token {
-                kind,
-                value: i.to_string(),
-                line,
-            };
-            data.push(a);
+    let mut tokens = Vec::new();
+    let mut line = 1;
+    let mut i = 0;
+
+    let mut state = State::Default;
+    let mut buffer = String::new();
+
+    while i < len {
+        let c = bytes[i] as char;
+
+        match state {
+            State::Default => match c {
+                '\n' => {
+                    line += 1;
+                    i += 1;
+                }
+                ' ' | '\t' => {
+                    i += 1;
+                }
+                '"' => {
+                    buffer.clear();
+                    state = State::String;
+                    i += 1;
+                }
+                c if c.is_ascii_alphabetic() || c == '_' => {
+                    buffer.clear();
+                    buffer.push(c);
+                    state = State::Identifier;
+                    i += 1;
+                }
+                c => {
+                    if let Some(kind) = char_to_token(c) {
+                        tokens.push(Token {
+                            kind,
+                            value: c.to_string(),
+                            line,
+                        });
+                    }
+                    i += 1;
+                }
+            },
+
+            State::Identifier => {
+                if c.is_ascii_alphanumeric() || c == '_' {
+                    buffer.push(c);
+                    i += 1;
+                } else {
+                    let kind = identify_token(&buffer).unwrap();
+                    tokens.push(Token {
+                        kind,
+                        value: buffer.clone(),
+                        line,
+                    });
+                    buffer.clear();
+                    state = State::Default;
+                }
+            }
+
+            State::String => {
+                if c == '"' {
+                    tokens.push(Token {
+                        kind: TokenKind::String,
+                        value: buffer.clone(),
+                        line,
+                    });
+                    buffer.clear();
+                    state = State::Default;
+                    i += 1;
+                } else {
+                    if c == '\n' {
+                        line += 1;
+                    }
+                    buffer.push(c);
+                    i += 1;
+                }
+            }
         }
     }
-    return Ok(data);
+
+    tokens.push(Token {
+        kind: TokenKind::EOF,
+        value: String::new(),
+        line,
+    });
+
+    Ok(tokens)
 }
