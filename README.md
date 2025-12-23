@@ -118,6 +118,6 @@ Planned extensions:
 
 ---
 
-## Next Step
-
-Parser implementation.
+# Parser
+- The Work on Parser is postphoned and I will be working on the actual editing engine and image, audio and video processing because I have never \
+worked with trees so I need to learn tree structures which will take sometime and until then I can research on media processing the issues and techniques I should or can work on.
