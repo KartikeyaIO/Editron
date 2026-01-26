@@ -1,4 +1,6 @@
-let variable = "This is my first programming language"
+let variable = "This is my first programming language
+let num = 25034
+let floating_number = 25.300
 if variable{
     return variable
 }

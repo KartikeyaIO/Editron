@@ -1,8 +1,9 @@
-use std::fs;
-use std::io;
-
 #[derive(Debug, Clone)]
 pub struct Token {
+    /// The Token Struct has Three values
+    /// kind which decides token kind
+    /// value which stores values
+    /// line which stores the line numbers
     pub kind: TokenKind,
     pub value: String,
     pub line: usize,
@@ -10,8 +11,9 @@ pub struct Token {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
+    /// TokenKind enum stores the kind of tokens implimented in Editron
     Identifier,
-    Num,
+    Int,
     String,
     LeftParen,
     RightParen,
@@ -32,17 +34,41 @@ pub enum TokenKind {
     Or,
     Not,
     Return,
+    Float,
     EOF,
 }
 
 #[derive(Debug, Clone)]
+/// State Enum stores the state of the the data as the control moves through each character
 pub enum State {
     Default,
     Identifier,
     String,
+    Number,
+}
+#[derive(Debug, Clone)]
+pub enum LexError {
+    /// LexError generates the the Errors at lexer level
+    InvalidCharacter {
+        ch: char,
+        line: usize,
+        message: String,
+    }, // The InvalidCharacter Error tells the user the character is invalid
+
+    UnterminatedString {
+        line: usize,
+        message: String,
+    }, // The UnterminatedString Error tells the user the string was not terminated
+
+    InvalidNumber {
+        value: String,
+        line: usize,
+        message: String,
+    }, // The Invalid Number Error Tells the user the number is invalid
 }
 
 pub fn char_to_token(c: char) -> Option<TokenKind> {
+    /// converts the character to TokenKind
     match c {
         '(' => Some(TokenKind::LeftParen),
         ')' => Some(TokenKind::RightParen),
@@ -60,6 +86,7 @@ pub fn char_to_token(c: char) -> Option<TokenKind> {
 }
 
 fn identify_token(s: &str) -> Option<TokenKind> {
+    /// The identify_token function identifies the tokens such as keywords
     match s {
         "if" => Some(TokenKind::If),
         "else" => Some(TokenKind::Else),
@@ -73,8 +100,8 @@ fn identify_token(s: &str) -> Option<TokenKind> {
     }
 }
 
-pub fn lexer() -> Result<Vec<Token>, io::Error> {
-    let source = fs::read_to_string("input.edt")?;
+pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
+    /// lexer function returns as Vector containing Tokens
     let bytes = source.as_bytes();
     let len = bytes.len();
 
@@ -108,12 +135,24 @@ pub fn lexer() -> Result<Vec<Token>, io::Error> {
                     state = State::Identifier;
                     i += 1;
                 }
+                c if c.is_ascii_digit() => {
+                    buffer.clear();
+                    buffer.push(c);
+                    state = State::Number;
+                    i += 1;
+                }
                 c => {
                     if let Some(kind) = char_to_token(c) {
                         tokens.push(Token {
                             kind,
                             value: c.to_string(),
                             line,
+                        });
+                    } else {
+                        return Err(LexError::InvalidCharacter {
+                            ch: c,
+                            line,
+                            message: "The Character is invalid".to_string(),
                         });
                     }
                     i += 1;
@@ -154,6 +193,43 @@ pub fn lexer() -> Result<Vec<Token>, io::Error> {
                     i += 1;
                 }
             }
+            State::Number => {
+                if c.is_ascii_digit() {
+                    buffer.push(c);
+                    i += 1;
+                } else if c == '.' && !buffer.contains('.') {
+                    buffer.push(c);
+                    i += 1;
+                } else if c == '.' && buffer.contains('.') {
+                    return Err(LexError::InvalidNumber {
+                        value: buffer.clone(),
+                        line,
+                        message: "The Number contains '.' more than once which is not allowed!"
+                            .to_string(),
+                    });
+                } else {
+                    let kind = if buffer.contains('.') {
+                        TokenKind::Float
+                    } else {
+                        TokenKind::Int
+                    };
+
+                    tokens.push(Token {
+                        kind,
+                        value: buffer.clone(),
+                        line,
+                    });
+
+                    buffer.clear();
+                    state = State::Default;
+                }
+            }
+        }
+        if matches!(state, State::String) {
+            return Err(LexError::UnterminatedString {
+                line,
+                message: "The string was never terminated!".to_string(),
+            });
         }
     }
 

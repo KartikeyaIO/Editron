@@ -46,6 +46,7 @@ The lexer operates using the following states:
 - `Default` – normal scanning mode  
 - `Identifier` – reading identifiers or keywords  
 - `String` – reading string literals  
+- `Number` – reading Numeric Values
 
 This approach prevents premature token emission and keeps lexing logic deterministic.
 
@@ -99,6 +100,10 @@ The `lexer()` function performs the full tokenization process.
 - Tracks newlines inside strings
 - Returns to `Default` state
 
+#### Number State
+- The compiler enters the Number state when a numeric value is encountered
+- if checks whether the number contains a `.` or not and classifies the number as Int or Float
+- Returns the corresponding token or an Error based if the Number is Invalid 
 ---
 
 ### End of Input
@@ -109,6 +114,9 @@ After processing the entire source, an explicit `EOF` token is emitted.
 ## Current Status
 
 The lexer foundation is complete and structurally stable.
+Updates:  
+- Added Numeric values
+- Added Custom Errors
 
 Planned extensions:
 - Numeric literals
