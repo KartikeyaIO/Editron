@@ -121,7 +121,8 @@ pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
                     line += 1;
                     i += 1;
                 }
-                ' ' | '\t' => {
+
+                ' ' | '\t' | '\r' => {
                     i += 1;
                 }
                 '"' => {
@@ -225,14 +226,13 @@ pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
                 }
             }
         }
-        if matches!(state, State::String) {
-            return Err(LexError::UnterminatedString {
-                line,
-                message: "The string was never terminated!".to_string(),
-            });
-        }
     }
-
+    if matches!(state, State::String) {
+        return Err(LexError::UnterminatedString {
+            line,
+            message: "The string was never terminated!".to_string(),
+        });
+    }
     tokens.push(Token {
         kind: TokenKind::EOF,
         value: String::new(),
