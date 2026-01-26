@@ -119,7 +119,6 @@ Updates:
 - Added Custom Errors
 
 Planned extensions:
-- Numeric literals
 - Comments
 - Escaped characters in strings
 - Multi-character operators
