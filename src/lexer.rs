@@ -23,9 +23,11 @@ pub enum TokenKind {
     Minus,
     Star,
     Slash,
+    SemiColon,
     Equal,
     GreaterThan,
     LessThan,
+    Bool,
     If,
     Else,
     Fn,
@@ -81,6 +83,7 @@ pub fn char_to_token(c: char) -> Option<TokenKind> {
         '=' => Some(TokenKind::Equal),
         '>' => Some(TokenKind::GreaterThan),
         '<' => Some(TokenKind::LessThan),
+        ';' => Some(TokenKind::SemiColon),
         _ => None,
     }
 }
@@ -96,6 +99,8 @@ fn identify_token(s: &str) -> Option<TokenKind> {
         "return" => Some(TokenKind::Return),
         "fn" => Some(TokenKind::Fn),
         "let" => Some(TokenKind::Let),
+        "True" => Some(TokenKind::Bool),
+        "False" => Some(TokenKind::Bool),
         _ => Some(TokenKind::Identifier),
     }
 }
@@ -117,6 +122,15 @@ pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
 
         match state {
             State::Default => match c {
+                ';' => {
+                    tokens.push(Token {
+                        kind: TokenKind::SemiColon,
+                        value: ";".to_string(),
+                        line,
+                    });
+                    i += 1;
+                }
+
                 '\n' => {
                     line += 1;
                     i += 1;
@@ -125,6 +139,7 @@ pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
                 ' ' | '\t' | '\r' => {
                     i += 1;
                 }
+
                 '"' => {
                     buffer.clear();
                     state = State::String;

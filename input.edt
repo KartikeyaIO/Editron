@@ -1,6 +1,2 @@
-let variable = "This is my first programming language
-let num = 25034
-let floating_number = 25.300
-if variable{
-    return variable
-}
+let alpha = "Kartikeya";
+let a = 3 + 2 / 6;
