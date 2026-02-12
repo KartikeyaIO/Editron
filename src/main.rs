@@ -1,11 +1,9 @@
 #![allow(warnings, unused)]
-
-mod engine;
-mod lexer;
-mod parser;
-
 use std::fs;
 use std::io;
+
+use editron_v1::lexer;
+use editron_v1::parser;
 
 fn main() -> Result<(), io::Error> {
     let source = fs::read_to_string("input.edt")?;
