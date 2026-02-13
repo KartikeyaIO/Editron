@@ -1,2 +1,3 @@
 let alpha = "Kartikeya";
 let a = 3 + 2 / 6;
+let alpha = load_image_rgb("image.jpg");

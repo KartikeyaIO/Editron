@@ -7,163 +7,57 @@ Editron is a domain-specific programming language designed for video editing and
 
 ### Targets
 1. Simple, readable syntax inspired by Python.  
-2. Automatic memory management (garbage-collection–style abstraction)  
+2. Automatic memory management, refer to [Memory Architecture of Editron](docs/Memory.md)  
 3. High performance suitable for processing large video files  
 4. Robust file handling for different media formats  
 5. A unified language that exposes common and advanced editing tools  
 
 ---
+# Lexer
+- The Lexer's job is to convert the bytes inside the file to a set of Tokens that we can work on. 
+- In Editron the Lexer returns a `Vec<Token>` and which is used by the Parser to implement the IR.
+- For Detailed Architecture, Look at : [Lexer Architecture](docs/Lexer.md)
 
-## Lexer
+# Parser
+- The Parser's job is to understand the tokens emitted by the Lexer and give meaning to it, the parser is what gives the language it syntax and semantics
+- Unlike traditional compilers that build an AST first, Editron’s parser directly emits an IR optimized for media execution.
 
-The lexer is implemented in Rust and is responsible for converting source code into a stream of tokens.  
-It is designed as an explicit **state machine**, which ensures correctness and clear token boundaries.
+- You can take a look at it's current state here: [Parser](docs/Parser.md)
 
----
 
-## Token Representation
-
-### `Token`
-Each token contains:
-- `kind`: the token type (`TokenKind`)
-- `value`: the lexeme as a string
-- `line`: line number for error reporting
-
-### `TokenKind`
-Defines all supported token categories, including:
-- Identifiers
-- Keywords (`if`, `else`, `let`, `fn`, `return`, etc.)
-- Operators and punctuation
-- String literals
-- (Update) Addition of SemiColon, yeah I realised life is not that easy without them.
-- End-of-file marker (`EOF`)
-
----
-
-## Lexer States
-
-The lexer operates using the following states:
-
-- `Default` – normal scanning mode  
-- `Identifier` – reading identifiers or keywords  
-- `String` – reading string literals  
-- `Number` – reading Numeric Values
-
-This approach prevents premature token emission and keeps lexing logic deterministic.
-
----
-
-## Helper Functions
-
-### `char_to_token()`
-Maps single-character symbols (parentheses, braces, operators) to their corresponding `TokenKind`.
-
-### `identify_token()`
-Classifies a completed word:
-- Returns a keyword token if the word matches a reserved keyword
-- Otherwise returns `Identifier`
-
----
-
-## `lexer()` Function
-
-The `lexer()` function performs the full tokenization process.
-
-### Initialization
-- Reads the source file (`.edt`)
-- Converts the source into a byte array for indexed access
-- Initializes:
-  - cursor index
-  - line counter
-  - current lexer state
-  - temporary buffer for words and strings
-
----
-
-### State Handling
-
-#### Default State
-- Skips whitespace and tabs
-- Tracks newlines for accurate line numbers
-- Transitions to:
-  - `Identifier` state when encountering letters or `_`
-  - `String` state when encountering `"`
-- Emits single-character tokens via `char_to_token()`
-
-#### Identifier State
-- Consumes alphanumeric characters and `_`
-- Emits either a keyword or identifier token upon termination
-- Returns to `Default` state without consuming the terminating character
-
-#### String State
-- Accumulates characters until a closing `"`
-- Emits a `String` token
-- Tracks newlines inside strings
-- Returns to `Default` state
-
-#### Number State
-- The compiler enters the Number state when a numeric value is encountered
-- if checks whether the number contains a `.` or not and classifies the number as Int or Float
-- Returns the corresponding token or an Error based if the Number is Invalid 
----
-
-### End of Input
-After processing the entire source, an explicit `EOF` token is emitted.
-
----
+# The Media Processing Engine
+The execution core of Editron.  \
+Responsible for decoding, frame-level manipulation, audio processing, and encoding.\
+- For now Editron uses FFMPEG for Decoding and Encoding of file types and does require you to have FFMPEG installed on your system, for details check out the requirements section.
+- Editron introduces some DataTypes which are completely unique to Editron, They are Listed below:
+1. Frame: The Frame Type is used to store and work with a single image. Check : [The Frame Type](docs/Frame.md)
+2. Clip: The Clip Type is a wrapper around the `Vec<Frame>`  and is limited dynamically according to the resolution. [The Clip Type](docs/Clip.md)
+3. Track: The Track Type is built specifically to process the audio files. [The Track Type](docs/Track.md)
+4. Video: Video type is used to work with Video files as the name suggests. [The Video Type](docs/Video.md)
+- Clip is intentionally memory-bounded (~100MB default).  
+- For full-length processing, users should iterate over the Video type.
 
 ## Current Status
 
-The lexer foundation is complete and structurally stable.
-Updates:  
-- Added Numeric values
-- Added Custom Errors
 
-Planned extensions:
-- Comments
-- Escaped characters in strings
-- Multi-character operators
+- Lexer: Stable for basic syntax.
+- Parser: Emits IR for simple constructs.
+- Frame: Basic RGB24 support implemented.
+- Image IO:
+  - `load_image_rgb()`
+  - `export_frame_to_png()`
+- PixelFormat currently fixed to RGB24.
 
----
+## Future Updates may Include:
+- Implementation for other types
+- Prelude, to allow Editron to access the features and Types I have built.
+- A shift to `ffmpeg-next` from CLI.
 
-## Parser (Current State)
+## Requirements
 
-The parser converts a linear token stream into a simple instruction-based IR.
+Editron v0.1 has been tested with:
 
-At this stage, the parser does **not** build an AST. Instead, it emits IR instructions directly while parsing expressions. This keeps the system small and allows the instruction set to evolve based on engine requirements.
+- **FFmpeg 8.0.1 (full_build, gyan.dev)**
+- Windows x64 (MSYS2 GCC build)
 
-### What It Supports
-
-- `let` statements
-- Integer and string literals
-- Basic arithmetic: `+ - * /`
-- Operator precedence via recursive descent
-- Compile-time evaluation of constant expressions
-
-### Compile-Time vs Runtime Values
-
-During parsing, values are classified as:
-
-- **Compile-time constants** (evaluated immediately)
-- **Runtime values** stored in registers
-
-Constant-only expressions are folded during parsing.  
-Expressions involving runtime values emit IR instructions.
-
-### IR Emission
-
-Instructions are pushed incrementally during parsing:
-
-- String literals emit a `LoadString` instruction
-- Arithmetic operations emit instructions only when runtime evaluation is required
-- Registers are allocated sequentially
-
-The output of the parser is a linear IR program intended to be executed by the engine.
-
-### Notes
-
-- Error handling is minimal and uses panics
-- No control flow or functions yet
-- Design is intentionally simple and incomplete
-
-This parser exists to unblock engine development and will likely be revisited once execution semantics stabilize.
+Older versions may work, but are not officially tested.

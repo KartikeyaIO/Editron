@@ -70,7 +70,7 @@ pub enum LexError {
 }
 
 pub fn char_to_token(c: char) -> Option<TokenKind> {
-    /// converts the character to TokenKind
+    // converts the character to TokenKind
     match c {
         '(' => Some(TokenKind::LeftParen),
         ')' => Some(TokenKind::RightParen),
@@ -89,7 +89,7 @@ pub fn char_to_token(c: char) -> Option<TokenKind> {
 }
 
 fn identify_token(s: &str) -> Option<TokenKind> {
-    /// The identify_token function identifies the tokens such as keywords
+    // The identify_token function identifies the tokens such as keywords
     match s {
         "if" => Some(TokenKind::If),
         "else" => Some(TokenKind::Else),
@@ -106,7 +106,7 @@ fn identify_token(s: &str) -> Option<TokenKind> {
 }
 
 pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
-    /// lexer function returns as Vector containing Tokens
+    // lexer function returns as Vector containing Tokens
     let bytes = source.as_bytes();
     let len = bytes.len();
 
