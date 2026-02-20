@@ -112,6 +112,9 @@ impl Frame {
     pub fn data(&self) -> &[u8] {
         &self.data
     }
+    pub fn data_mut(&mut self) -> &[u8] {
+        return &mut self.data;
+    }
 }
 impl Frame {
     pub fn pixel_index(&self, pos: &Pos) -> Result<usize, FrameError> {
@@ -147,5 +150,16 @@ impl Frame {
         let index = self.pixel_index(pos)?;
         let data = self.data();
         Ok(Color(data[index], data[index + 1], data[index + 2]))
+    }
+
+    /// The set_pixel() function is used to set the color of a pixel at a specific position
+    pub fn set_pixel(&mut self, pos: &Pos, color: Color) -> Result<(), FrameError> {
+        let index = self.pixel_index(pos)?;
+        let data = &mut self.data;
+        let Color(r, g, b) = color;
+        data[index] = r;
+        data[index + 1] = g;
+        data[index + 2] = b;
+        Ok(())
     }
 }
