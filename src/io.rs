@@ -3,6 +3,7 @@ use crate::media::track::Track;
 use std::io::Read;
 use std::io::Write;
 use std::process::{Command, Stdio};
+use std::slice;
 pub fn load_image_rgb(
     path: &str,
 ) -> Result<(Vec<u8>, u32, u32, PixelFormat), Box<dyn std::error::Error>> {
@@ -126,7 +127,10 @@ pub fn decode(path: &str) -> Result<(u32, u8, Vec<f32>), Box<dyn std::error::Err
         .as_mut()
         .unwrap()
         .read_to_end(&mut raw_output)?;
-
+    let status = child.wait()?;
+    if !status.success() {
+        return Err("FFMPEG Failed".into());
+    }
     let samples: Vec<f32> = raw_output
         .chunks_exact(4)
         .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()))
@@ -138,6 +142,7 @@ pub fn decode(path: &str) -> Result<(u32, u8, Vec<f32>), Box<dyn std::error::Err
 pub fn encode_mp3(track: &Track, output: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut child = Command::new("ffmpeg")
         .args([
+            "-y",
             "-f",
             "f32le",
             "-ac",
@@ -154,15 +159,24 @@ pub fn encode_mp3(track: &Track, output: &str) -> Result<(), Box<dyn std::error:
         .stdin(Stdio::piped())
         .spawn()?;
 
-    let stdin = child.stdin.as_mut().unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
 
-    for sample in *(&track.buffer()) {
-        stdin.write_all(&sample.to_le_bytes())?;
+        let samples = track.buffer();
+        let byte_slice: &[u8] = unsafe {
+            slice::from_raw_parts(
+                samples.as_ptr() as *const u8,
+                samples.len() * std::mem::size_of::<f32>(),
+            )
+        };
+
+        stdin.write_all(byte_slice)?;
     }
 
-    drop(stdin);
-
-    child.wait()?;
+    let status = child.wait()?;
+    if !status.success() {
+        return Err("ffmpeg encoding failed".into());
+    }
 
     Ok(())
 }

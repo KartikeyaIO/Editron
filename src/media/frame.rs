@@ -40,7 +40,7 @@ impl Timestamp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Frame Type is used to store an image or a single frame from a video.
 pub struct Frame {
     width: u32,
