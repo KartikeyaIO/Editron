@@ -15,10 +15,19 @@ for lexer I will be defining a struct and then I will follow the following rules
 4. Numbers are one token
 
 # Second Step : Parser
-for parser, I will not be building Abstract Syntax Tree like Traditional compilers, instead we will build Intermediate Representation.
-## What I am thinking?
-1. I will define some structs and Enums:
-- The command struct stores the the command and it's arguments.
-- The command struct will actually store the commands
-- I will define Enums which define command type like addition, substraction, file open, file closing and all that,
-- Based on the token stream we recieve from the lexer we will push in a vector<command> in the exact same order corresponding to the execution order and then I we will pass the commands and it's execution order to the engine which will decipher and perform the commands hence, compiling the high level code.
+- When I write `let a = load("image.jpg");` It will be translated to Tokens like : let, identifier a, equal, identifier load, opening ( and closing ) and in between these String that contains the path.
+- Read about Infix, prefix, and suffix, operations.
+- prefix notations
+
+
+# Engine
+## Pulse Code Modulation:
+Pulse Code Modulation (PCM) is a method used to digitally represent analog signals by sampling their amplitude at uniform intervals and converting them into a binary sequence (
+s and 
+s). It is the standard for digital audio in computers, CDs, and telephony, involving three key steps: sampling, quantization, and coding to transform continuous signals into discrete data
+
+- Process: The analog signal is sampled, then quantized (rounded to the nearest digital value), and finally coded into a binary stream.
+Advantages: PCM offers high noise immunity,, improved signal-to-noise ratio, and efficient long-distance communication.
+- Applications: Widely used in digital audio (CDs, WAV files), digital telephony, and data conversion.
+- Standards: Uses time-division multiplexing, typically with 24 channels (North American/Japanese) or 30 channels (European/Indian).
+- Types: Differential PCM (DPCM) and Adaptive Differential PCM (ADPCM) are variants for specialized applications

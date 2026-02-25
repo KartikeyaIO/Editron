@@ -37,6 +37,15 @@ Responsible for decoding, frame-level manipulation, audio processing, and encodi
 - Clip is intentionally memory-bounded (~100MB default).  
 - For full-length processing, users should iterate over the Video type.
 
+##  Experiments
+
+- These are standalone experimental functions built to explore unconventional ideas around media transformation.
+
+- They are **not part of the core Editron engine**, but they demonstrate exploratory work in cross-domain media processing.
+
+- Feel free to experiment with them.
+
+
 ## Current Status
 
 

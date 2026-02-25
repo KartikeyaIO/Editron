@@ -253,6 +253,6 @@ pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
         value: String::new(),
         line,
     });
-
+    //tokens.reverse();
     Ok(tokens)
 }

@@ -1,5 +1,12 @@
 use std::fmt;
+
+// CONFIGS
+#[derive(Debug, Clone, Copy)]
+pub struct Color(pub u8, pub u8, pub u8);
+pub struct Pos(pub u32, pub u32);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+/// PixelFormat is a enum which helps us decide the PixelFormat of a decoded image
 pub enum PixelFormat {
     RGB24,
     Gray8,
@@ -33,7 +40,8 @@ impl Timestamp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+/// Frame Type is used to store an image or a single frame from a video.
 pub struct Frame {
     width: u32,
     height: u32,
@@ -44,12 +52,16 @@ pub struct Frame {
 #[derive(Debug)]
 pub enum FrameError {
     InvalidFrameSize,
+    InvalidPixel,
 }
 impl fmt::Display for FrameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             FrameError::InvalidFrameSize => {
                 write!(f, "Invalid frame buffer size")
+            }
+            FrameError::InvalidPixel => {
+                write!(f, "Unable to find the pixel!")
             }
         }
     }
@@ -77,6 +89,7 @@ impl Frame {
             Err(FrameError::InvalidFrameSize)
         }
     }
+    /// The brightness function is used to adjust the brightness of a Frame
     pub fn brightness(&mut self, delta: i16) {
         for pixel in &mut self.data {
             let value = *pixel as i16 + delta;
@@ -98,5 +111,52 @@ impl Frame {
     }
     pub fn data(&self) -> &[u8] {
         &self.data
+    }
+}
+impl Frame {
+    pub fn pixel_index(&self, pos: &Pos) -> Result<usize, FrameError> {
+        let Pos(x, y) = *pos;
+
+        if x >= self.width || y >= self.height {
+            return Err(FrameError::InvalidPixel);
+        }
+
+        let index = (y as usize * self.width as usize + x as usize) * self.format.bytes_per_pixel();
+
+        if index + self.format.bytes_per_pixel() > self.data.len() {
+            return Err(FrameError::InvalidPixel);
+        }
+
+        Ok(index)
+    }
+
+    /// It  changes the colour of a single pixel and returns the colour of that pixel
+    pub fn replace_pixel(&mut self, position: &Pos, color: &Color) -> Result<Color, FrameError> {
+        let index = self.pixel_index(position)?;
+        let data = &mut self.data;
+        let pixel = Color(data[index], data[index + 1], data[index + 2]);
+        let Color(r, g, b) = *color;
+
+        data[index] = r;
+        data[index + 1] = g;
+        data[index + 2] = b;
+        Ok(pixel)
+    }
+    /// The get_pixel function returns the color of a pixel at a certain position
+    pub fn get_pixel(&self, pos: &Pos) -> Result<Color, FrameError> {
+        let index = self.pixel_index(pos)?;
+        let data = self.data();
+        Ok(Color(data[index], data[index + 1], data[index + 2]))
+    }
+
+    /// The set_pixel() method allows us to set the color of a pixel at a specific position
+    pub fn set_pixel(&mut self, pos: &Pos, color: &Color) -> Result<(), FrameError> {
+        let index = self.pixel_index(pos)?;
+        let data = &mut self.data;
+        let Color(r, g, b) = *color;
+        data[index] = r;
+        data[index + 1] = g;
+        data[index + 2] = b;
+        Ok(())
     }
 }
