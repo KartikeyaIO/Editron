@@ -76,6 +76,7 @@ pub enum FrameError {
     InvalidPixel,
     InvalidPixelFormat,
     BlitFailed,
+    InvalidOpacityValue,
 }
 impl fmt::Display for FrameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -91,6 +92,9 @@ impl fmt::Display for FrameError {
             }
             FrameError::BlitFailed => {
                 write!(f, "Overlapping Failed! Check Dimensions!")
+            }
+            FrameError::InvalidOpacityValue => {
+                write!(f, "Opacity Value must be between 0 and 100")
             }
         }
     }
@@ -211,6 +215,30 @@ impl Frame {
             }
         };
 
+        Ok(())
+    }
+    pub fn set_alpha(&mut self, value: u8) -> Result<(), FrameError> {
+        if self.format() != PixelFormat::RGBA32 {
+            return Err(FrameError::InvalidPixelFormat);
+        }
+        let data = &mut self.data;
+        for i in (3..data.len()).step_by(4) {
+            data[i] = value;
+        }
+        Ok(())
+    }
+    pub fn opacity(&mut self, value: u8) -> Result<(), FrameError> {
+        if self.format() != PixelFormat::RGBA32 {
+            return Err(FrameError::InvalidPixelFormat);
+        }
+        if value > 100 {
+            return Err(FrameError::InvalidOpacityValue);
+        }
+        let data = &mut self.data;
+
+        for i in (3..data.len()).step_by(4) {
+            data[i] = ((data[i] as u16 * value as u16) / 100) as u8;
+        }
         Ok(())
     }
     //pub fn blit(&self, frame: &Frame) -> Result<Frame, FrameError> {}
