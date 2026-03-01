@@ -4,8 +4,9 @@ use std::io::Read;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::slice;
-pub fn load_image_rgb(
+pub fn load_image(
     path: &str,
+    fmt: PixelFormat,
 ) -> Result<(Vec<u8>, u32, u32, PixelFormat), Box<dyn std::error::Error>> {
     let probe_output = Command::new("ffprobe")
         .args([
@@ -31,10 +32,17 @@ pub fn load_image_rgb(
     let width: u32 = parts.next().ok_or("Missing width")?.parse()?;
 
     let height: u32 = parts.next().ok_or("Missing height")?.parse()?;
-
     let mut child = Command::new("ffmpeg")
         .args([
-            "-v", "error", "-i", path, "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+            "-v",
+            "error",
+            "-i",
+            path,
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            fmt.ffmpeg_fmt(),
+            "-",
         ])
         .stdout(Stdio::piped())
         .spawn()?;
@@ -51,23 +59,19 @@ pub fn load_image_rgb(
     if !status.success() {
         return Err("ffmpeg decode failed".into());
     }
-    let expected_size = width as usize * height as usize * 3;
+    let expected_size = width as usize * height as usize * fmt.bytes_per_pixel();
 
     if buffer.len() != expected_size {
         return Err("Decoded buffer size mismatch".into());
     }
 
-    Ok((buffer, width, height, PixelFormat::RGB24))
+    Ok((buffer, width, height, fmt))
 }
 
 pub fn export_frame_to_png(
     frame: &Frame,
     output_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if frame.format() != PixelFormat::RGB24 {
-        return Err("Only RGB24 export supported in V1".into());
-    }
-
     let width = frame.width();
     let height = frame.height();
 
@@ -78,7 +82,7 @@ pub fn export_frame_to_png(
             "-f",
             "rawvideo",
             "-pix_fmt",
-            "rgb24",
+            frame.format().ffmpeg_fmt(),
             "-s",
             &format!("{}x{}", width, height),
             "-i",

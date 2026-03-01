@@ -2,7 +2,21 @@ use std::fmt;
 
 // CONFIGS
 #[derive(Debug, Clone, Copy)]
-pub struct Color(pub u8, pub u8, pub u8);
+pub enum Color {
+    RGB(u8, u8, u8),
+    RGBA(u8, u8, u8, u8),
+    Gray(u8),
+}
+impl Color {
+    pub fn size(&self) -> usize {
+        match *self {
+            Self::RGB(..) => 3,
+            Self::Gray(_) => 1,
+            Self::RGBA(..) => 4,
+        }
+    }
+}
+#[derive(Debug, Clone, Copy)]
 pub struct Pos(pub u32, pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -19,6 +33,13 @@ impl PixelFormat {
             PixelFormat::RGB24 => 3,
             PixelFormat::Gray8 => 1,
             PixelFormat::RGBA32 => 4,
+        }
+    }
+    pub fn ffmpeg_fmt(&self) -> &str {
+        match *self {
+            PixelFormat::RGB24 => "rgb24",
+            PixelFormat::RGBA32 => "rgba",
+            PixelFormat::Gray8 => "gray",
         }
     }
 }
@@ -53,6 +74,8 @@ pub struct Frame {
 pub enum FrameError {
     InvalidFrameSize,
     InvalidPixel,
+    InvalidPixelFormat,
+    BlitFailed,
 }
 impl fmt::Display for FrameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -62,6 +85,12 @@ impl fmt::Display for FrameError {
             }
             FrameError::InvalidPixel => {
                 write!(f, "Unable to find the pixel!")
+            }
+            FrameError::InvalidPixelFormat => {
+                write!(f, "The PixelFormat for Frame and Color Does not match!")
+            }
+            FrameError::BlitFailed => {
+                write!(f, "Overlapping Failed! Check Dimensions!")
             }
         }
     }
@@ -131,32 +160,58 @@ impl Frame {
     }
 
     /// It  changes the colour of a single pixel and returns the colour of that pixel
-    pub fn replace_pixel(&mut self, position: &Pos, color: &Color) -> Result<Color, FrameError> {
-        let index = self.pixel_index(position)?;
-        let data = &mut self.data;
-        let pixel = Color(data[index], data[index + 1], data[index + 2]);
-        let Color(r, g, b) = *color;
-
-        data[index] = r;
-        data[index + 1] = g;
-        data[index + 2] = b;
+    pub fn replace_pixel(&mut self, pos: &Pos, color: &Color) -> Result<Color, FrameError> {
+        let pixel = self.get_pixel(pos)?;
+        self.set_pixel(pos, color)?;
         Ok(pixel)
     }
     /// The get_pixel function returns the color of a pixel at a certain position
     pub fn get_pixel(&self, pos: &Pos) -> Result<Color, FrameError> {
         let index = self.pixel_index(pos)?;
-        let data = self.data();
-        Ok(Color(data[index], data[index + 1], data[index + 2]))
+        let format = self.format();
+        let data = &self.data;
+
+        let pixel = match format {
+            PixelFormat::RGB24 => Color::RGB(data[index], data[index + 1], data[index + 2]),
+            PixelFormat::RGBA32 => Color::RGBA(
+                data[index],
+                data[index + 1],
+                data[index + 2],
+                data[index + 3],
+            ),
+            PixelFormat::Gray8 => Color::Gray(data[index]),
+        };
+
+        Ok(pixel)
     }
 
     /// The set_pixel() method allows us to set the color of a pixel at a specific position
     pub fn set_pixel(&mut self, pos: &Pos, color: &Color) -> Result<(), FrameError> {
         let index = self.pixel_index(pos)?;
+        let format = self.format();
         let data = &mut self.data;
-        let Color(r, g, b) = *color;
-        data[index] = r;
-        data[index + 1] = g;
-        data[index + 2] = b;
+        if format.bytes_per_pixel() != color.size() {
+            return Err(FrameError::InvalidPixelFormat);
+        }
+        match *color {
+            Color::RGB(r, g, b) => {
+                data[index] = r;
+                data[index + 1] = g;
+                data[index + 2] = b;
+            }
+            Color::RGBA(r, g, b, a) => {
+                data[index] = r;
+                data[index + 1] = g;
+                data[index + 2] = b;
+                data[index + 3] = a;
+            }
+
+            Color::Gray(a) => {
+                data[index] = a;
+            }
+        };
+
         Ok(())
     }
+    //pub fn blit(&self, frame: &Frame) -> Result<Frame, FrameError> {}
 }

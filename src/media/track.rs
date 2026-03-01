@@ -65,4 +65,24 @@ impl Track {
             .map(|x| (x.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
             .collect()
     }
+    pub fn normalize(&mut self) -> bool {
+        let max = {
+            self.buffer()
+                .iter()
+                .map(|v| v.abs())
+                .max_by(|a, b| a.total_cmp(b))
+        };
+        let data = &mut self.buffer;
+        match max {
+            Some(value) => {
+                for i in 0..data.len() {
+                    data[i] /= value;
+                }
+                return true;
+            }
+            None => {
+                return false;
+            }
+        }
+    }
 }

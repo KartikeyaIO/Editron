@@ -50,15 +50,17 @@ Responsible for decoding, frame-level manipulation, audio processing, and encodi
 
 
 - Lexer: Stable for basic syntax.
-- Parser: Emits IR for simple constructs.
-- Frame: Basic RGB24 support implemented.
+- Parser: Parser implementation was removed and will be updated soon.
+- Frame: Support for RGBA32,RGB24,GRAY8, is implemented.
 - Image IO:
-  - `load_image_rgb()`
+  - `load_image()`
   - `export_frame_to_png()`
-- PixelFormat currently fixed to RGB24.
+- PixelFormat has implementations for RGBA,RGB24,Gray8.
+- Filter trait was added.
+- Gaussian Blur is also implemented.
 
 ## Future Updates may Include:
-- Implementation for other types
+- Implementation for Text, Video and Clip, more filters, and Parser.
 - Prelude, to allow Editron to access the features and Types I have built.
 - A shift to `ffmpeg-next` from CLI.
 
