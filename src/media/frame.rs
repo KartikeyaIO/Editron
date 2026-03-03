@@ -15,6 +15,27 @@ impl Color {
             Self::RGBA(..) => 4,
         }
     }
+    pub fn r(&self) -> u8 {
+        match self {
+            Self::RGB(r, _, _) => *r,
+            Self::RGBA(r, _, _, _) => *r,
+            _ => 0,
+        }
+    }
+    pub fn g(&self) -> u8 {
+        match self {
+            Self::RGB(_, g, _) => *g,
+            Self::RGBA(_, g, _, _) => *g,
+            _ => 0,
+        }
+    }
+    pub fn b(&self) -> u8 {
+        match self {
+            Self::RGB(_, _, b) => *b,
+            Self::RGBA(_, _, b, _) => *b,
+            _ => 0,
+        }
+    }
 }
 #[derive(Debug, Clone, Copy)]
 pub struct Pos(pub u32, pub u32);

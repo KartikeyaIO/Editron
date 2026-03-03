@@ -1,6 +1,13 @@
+use fontdue::Font;
 use media::frame::{Frame, PixelFormat};
 
-use crate::{filter::Filter, filters::gaussian_blur::GaussianBlur};
+use crate::{
+    filter::Filter,
+    filters::gaussian_blur::GaussianBlur,
+    io::export_frame_to_png,
+    media::frame::{Color, Pos},
+    text::Text,
+};
 
 mod engine;
 pub mod experiments;
@@ -34,6 +41,17 @@ fn test_image_operations() {
             Err(_) => panic!("Export to PNG Failed"),
         }
     }
+}
+#[test]
+fn text_to_image() {
+    let path = include_bytes!("../test_inputs/georgia.ttf") as &[u8];
+    let font = Font::from_bytes(path, fontdue::FontSettings::default()).unwrap();
+    let pos = Pos(50, 100);
+    let color = Color::RGBA(250, 0, 50, 255);
+    let text = Text::new("Hello World", font, 120.0, pos, color, PixelFormat::RGBA32);
+    let mut frame = text.picturize().unwrap();
+
+    export_frame_to_png(&frame, "Outputs/text.png").unwrap();
 }
 // #[test]
 // fn blur_effect_test() {
