@@ -40,44 +40,34 @@ impl Color {
 #[derive(Debug, Clone, Copy)]
 pub struct Pos(pub u32, pub u32);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-/// PixelFormat is a enum which helps us decide the PixelFormat of a decoded image
-pub enum PixelFormat {
-    RGB24,
-    Gray8,
-    RGBA32,
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+/// PixelData store the actual Data of a Frame
+pub enum PixelData {
+    RGB(Vec<u8>, Vec<u8>, Vec<u8>),
+    RGBA(Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>),
+    GRAY(Vec<u8>),
 }
 
-impl PixelFormat {
-    pub fn bytes_per_pixel(self) -> usize {
+impl PixelData {
+    pub fn bytes_per_pixel(&self) -> usize {
         match self {
-            PixelFormat::RGB24 => 3,
-            PixelFormat::Gray8 => 1,
-            PixelFormat::RGBA32 => 4,
+            PixelData::RGB(..) => 3,
+            PixelData::GRAY(_) => 1,
+            PixelData::RGBA(..) => 4,
         }
     }
     pub fn ffmpeg_fmt(&self) -> &str {
         match *self {
-            PixelFormat::RGB24 => "rgb24",
-            PixelFormat::RGBA32 => "rgba",
-            PixelFormat::Gray8 => "gray",
+            PixelData::RGB(..) => "rgb24",
+            PixelData::GRAY(_) => "gray",
+            PixelData::RGBA(..) => "rgba",
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Timestamp {
-    pub micros: u64,
-}
-
-impl Timestamp {
-    pub fn from_micros(us: u64) -> Self {
-        Self { micros: us }
-    }
-
-    pub fn from_seconds(s: f64) -> Self {
-        Self {
-            micros: (s * 1_000_000.0).round() as u64,
+    pub fn len(&self) -> usize {
+        match self {
+            PixelData::RGB(d, _, _) => d.len(),
+            PixelData::GRAY(d) => d.len(),
+            PixelData::RGBA(d, _, _, _) => d.len(),
         }
     }
 }
@@ -87,8 +77,8 @@ impl Timestamp {
 pub struct Frame {
     width: u32,
     height: u32,
-    format: PixelFormat,
-    data: Vec<u8>,
+
+    data: PixelData,
 }
 
 #[derive(Debug)]
@@ -98,6 +88,7 @@ pub enum FrameError {
     InvalidPixelFormat,
     BlitFailed,
     InvalidOpacityValue,
+    EmptyFrame,
 }
 impl fmt::Display for FrameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -117,6 +108,12 @@ impl fmt::Display for FrameError {
             FrameError::InvalidOpacityValue => {
                 write!(f, "Opacity Value must be between 0 and 100")
             }
+            FrameError::EmptyFrame => {
+                write!(
+                    f,
+                    "The data in Frame is Empty! The Image might be corrupted."
+                )
+            }
         }
     }
 }
@@ -124,19 +121,13 @@ impl fmt::Display for FrameError {
 impl std::error::Error for FrameError {}
 
 impl Frame {
-    pub fn new(
-        width: u32,
-        height: u32,
-        format: PixelFormat,
-        data: Vec<u8>,
-    ) -> Result<Self, FrameError> {
-        let expected_len = width as usize * height as usize * format.bytes_per_pixel();
+    pub fn new(width: u32, height: u32, data: PixelData) -> Result<Self, FrameError> {
+        let expected_len = width as usize * height as usize;
 
         if data.len() == expected_len {
             Ok(Self {
                 width,
                 height,
-                format,
                 data,
             })
         } else {
@@ -145,43 +136,38 @@ impl Frame {
     }
     /// The brightness function is used to adjust the brightness of a Frame
     pub fn brightness(&mut self, delta: i16) {
-        for pixel in &mut self.data {
-            let value = *pixel as i16 + delta;
+        let clamp = |v: u8| (v as i16 + delta).clamp(0, 255) as u8;
 
-            let clamped = value.clamp(0, 255);
-
-            *pixel = clamped as u8;
+        match &mut self.data {
+            PixelData::RGB(r, g, b) | PixelData::RGBA(r, g, b, _) => {
+                r.iter_mut().for_each(|v| *v = clamp(*v));
+                g.iter_mut().for_each(|v| *v = clamp(*v));
+                b.iter_mut().for_each(|v| *v = clamp(*v));
+            }
+            PixelData::GRAY(l) => l.iter_mut().for_each(|v| *v = clamp(*v)),
         }
     }
 
-    pub fn format(&self) -> PixelFormat {
-        self.format
-    }
     pub fn width(&self) -> u32 {
         self.width
     }
     pub fn height(&self) -> u32 {
         self.height
     }
-    pub fn data(&self) -> &[u8] {
+    pub fn data(&self) -> &PixelData {
         &self.data
+    }
+    pub fn data_mut(&mut self) -> &mut PixelData {
+        &mut self.data
     }
 }
 impl Frame {
     pub fn pixel_index(&self, pos: &Pos) -> Result<usize, FrameError> {
         let Pos(x, y) = *pos;
-
         if x >= self.width || y >= self.height {
             return Err(FrameError::InvalidPixel);
         }
-
-        let index = (y as usize * self.width as usize + x as usize) * self.format.bytes_per_pixel();
-
-        if index + self.format.bytes_per_pixel() > self.data.len() {
-            return Err(FrameError::InvalidPixel);
-        }
-
-        Ok(index)
+        Ok(y as usize * self.width as usize + x as usize)
     }
 
     /// It  changes the colour of a single pixel and returns the colour of that pixel
@@ -193,63 +179,56 @@ impl Frame {
     /// The get_pixel function returns the color of a pixel at a certain position
     pub fn get_pixel(&self, pos: &Pos) -> Result<Color, FrameError> {
         let index = self.pixel_index(pos)?;
-        let format = self.format();
-        let data = &self.data;
+        let data = self.data();
 
-        let pixel = match format {
-            PixelFormat::RGB24 => Color::RGB(data[index], data[index + 1], data[index + 2]),
-            PixelFormat::RGBA32 => Color::RGBA(
-                data[index],
-                data[index + 1],
-                data[index + 2],
-                data[index + 3],
-            ),
-            PixelFormat::Gray8 => Color::Gray(data[index]),
-        };
-
-        Ok(pixel)
+        match data {
+            PixelData::RGB(r, g, b) => Ok(Color::RGB(r[index], g[index], b[index])),
+            PixelData::RGBA(r, g, b, a) => Ok(Color::RGBA(r[index], g[index], b[index], a[index])),
+            PixelData::GRAY(l) => Ok(Color::Gray(l[index])),
+        }
     }
 
     /// The set_pixel() method allows us to set the color of a pixel at a specific position
     pub fn set_pixel(&mut self, pos: &Pos, color: &Color) -> Result<(), FrameError> {
         let index = self.pixel_index(pos)?;
-        let format = self.format();
-        let data = &mut self.data;
-        if format.bytes_per_pixel() != color.size() {
+
+        if self.data.bytes_per_pixel() != color.size() {
             return Err(FrameError::InvalidPixelFormat);
         }
-        match *color {
-            Color::RGB(r, g, b) => {
-                data[index] = r;
-                data[index + 1] = g;
-                data[index + 2] = b;
-            }
-            Color::RGBA(r, g, b, a) => {
-                data[index] = r;
-                data[index + 1] = g;
-                data[index + 2] = b;
-                data[index + 3] = a;
-            }
 
-            Color::Gray(a) => {
-                data[index] = a;
+        match (&mut self.data, color) {
+            (PixelData::RGB(r, g, b), Color::RGB(rv, gv, bv)) => {
+                r[index] = *rv;
+                g[index] = *gv;
+                b[index] = *bv;
             }
-        };
+            (PixelData::RGBA(r, g, b, a), Color::RGBA(rv, gv, bv, av)) => {
+                r[index] = *rv;
+                g[index] = *gv;
+                b[index] = *bv;
+                a[index] = *av;
+            }
+            (PixelData::GRAY(l), Color::Gray(v)) => {
+                l[index] = *v;
+            }
+            _ => return Err(FrameError::InvalidPixelFormat),
+        }
 
         Ok(())
     }
     pub fn set_alpha(&mut self, value: u8) -> Result<(), FrameError> {
-        if self.format() != PixelFormat::RGBA32 {
+        if self.data.bytes_per_pixel() != 4 {
             return Err(FrameError::InvalidPixelFormat);
         }
         let data = &mut self.data;
-        for i in (3..data.len()).step_by(4) {
-            data[i] = value;
+        match data {
+            PixelData::RGBA(_, _, _, a) => a.fill(value),
+            _ => return Err(FrameError::InvalidPixelFormat),
         }
         Ok(())
     }
     pub fn opacity(&mut self, value: u8) -> Result<(), FrameError> {
-        if self.format() != PixelFormat::RGBA32 {
+        if self.data.bytes_per_pixel() != 4 {
             return Err(FrameError::InvalidPixelFormat);
         }
         if value > 100 {
@@ -257,10 +236,43 @@ impl Frame {
         }
         let data = &mut self.data;
 
-        for i in (3..data.len()).step_by(4) {
-            data[i] = ((data[i] as u16 * value as u16) / 100) as u8;
+        match data {
+            PixelData::RGBA(_, _, _, a) => {
+                for i in a {
+                    *i = ((*i as u16 * value as u16) / 100) as u8;
+                }
+            }
+            _ => return Err(FrameError::InvalidPixelFormat),
         }
         Ok(())
     }
-    //pub fn blit(&self, frame: &Frame) -> Result<Frame, FrameError> {}
+    pub fn contrast(&mut self) -> Result<(), FrameError> {
+        let data = &mut self.data;
+        match data {
+            PixelData::GRAY(l) => {
+                let max = *l.iter().max().ok_or(FrameError::EmptyFrame)?;
+                let min = *l.iter().min().ok_or(FrameError::EmptyFrame)?;
+                let offset = max - min;
+                if offset == 0 {
+                    return Ok(());
+                }
+                l.iter_mut()
+                    .for_each(|v| *v = ((*v - min) as u16 * 255 / offset as u16) as u8);
+            }
+            PixelData::RGB(r, g, b) | PixelData::RGBA(r, g, b, _) => {
+                for channel in [r, g, b] {
+                    let max = *channel.iter().max().ok_or(FrameError::EmptyFrame)?;
+                    let min = *channel.iter().min().ok_or(FrameError::EmptyFrame)?;
+                    let offset = max - min;
+                    if offset == 0 {
+                        continue;
+                    }
+                    channel
+                        .iter_mut()
+                        .for_each(|v| *v = ((*v - min) as u16 * 255 / offset as u16) as u8);
+                }
+            }
+        }
+        Ok(())
+    }
 }

@@ -15,10 +15,9 @@ A `Frame` consists of the following fields:
 2. `height: u32`  
    Height of the image in pixels.
 
-3. `format: PixelFormat`  
-   Specifies the pixel encoding format (e.g., RGB24,RGBA32,Gray8).
 
-4. `data: Vec<u8>`  
+
+3. `data: PixelData`  
    Raw pixel buffer stored in row-major order.
 
 The internal buffer is guaranteed to satisfy the invariant:

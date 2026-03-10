@@ -1,127 +1,103 @@
 use crate::{
     filter::Filter,
-    media::frame::{Color, Frame, PixelFormat, Pos},
+    media::frame::{Frame, PixelData},
 };
+
 pub struct GaussianBlur {
     pub sigma: f32,
     kernel: Vec<f32>,
 }
 
 impl GaussianBlur {
-    pub fn build_kernel(sigma: &f32) -> Vec<f32> {
-        if *sigma <= 0.0 {
+    pub fn new(sigma: f32) -> Self {
+        let kernel = Self::build_kernel(sigma);
+        Self { sigma, kernel }
+    }
+
+    fn build_kernel(sigma: f32) -> Vec<f32> {
+        if sigma <= 0.0 {
             return vec![1.0];
         }
         let radius = (3.0 * sigma).ceil() as i32;
-        let mut sum = 0.0;
-        let mut kernel: Vec<f32> = Vec::new();
-        for i in -radius..=radius {
-            let weight = (-(i * i) as f32 / (2.0 * sigma * sigma)).exp();
-            sum += weight;
-            kernel.push(weight);
-        }
-        for k in &mut kernel {
-            *k /= sum;
-        }
+        let mut kernel: Vec<f32> = (-radius..=radius)
+            .map(|i| (-(i * i) as f32 / (2.0 * sigma * sigma)).exp())
+            .collect();
+        let sum: f32 = kernel.iter().sum();
+        kernel.iter_mut().for_each(|k| *k /= sum);
         kernel
     }
-    pub fn new(sigma: f32) -> Self {
-        let kernel = GaussianBlur::build_kernel(&sigma);
-        Self { sigma, kernel }
-    }
 }
+
+// ── Channel blur helpers ──────────────────────────────────────────────────────
+
+fn blur_horizontal(channel: &[u8], width: u32, height: u32, kernel: &[f32]) -> Vec<u8> {
+    let radius = (kernel.len() / 2) as i32;
+    let w = width as usize;
+    let h = height as usize;
+    let mut out = vec![0u8; w * h];
+
+    for y in 0..h {
+        for x in 0..w {
+            let mut sum = 0.0f32;
+            for (k, &weight) in kernel.iter().enumerate() {
+                let nx = (x as i32 + k as i32 - radius).clamp(0, (w - 1) as i32) as usize;
+                sum += channel[y * w + nx] as f32 * weight;
+            }
+            out[y * w + x] = sum.clamp(0.0, 255.0) as u8;
+        }
+    }
+    out
+}
+
+fn blur_vertical(channel: &[u8], width: u32, height: u32, kernel: &[f32]) -> Vec<u8> {
+    let radius = (kernel.len() / 2) as i32;
+    let w = width as usize;
+    let h = height as usize;
+    let mut out = vec![0u8; w * h];
+
+    for y in 0..h {
+        for x in 0..w {
+            let mut sum = 0.0f32;
+            for (k, &weight) in kernel.iter().enumerate() {
+                let ny = (y as i32 + k as i32 - radius).clamp(0, (h - 1) as i32) as usize;
+                sum += channel[ny * w + x] as f32 * weight;
+            }
+            out[y * w + x] = sum.clamp(0.0, 255.0) as u8;
+        }
+    }
+    out
+}
+
+fn blur_channel(channel: &[u8], width: u32, height: u32, kernel: &[f32]) -> Vec<u8> {
+    let temp = blur_horizontal(channel, width, height, kernel);
+    blur_vertical(&temp, width, height, kernel)
+}
+
+// ── Filter impl ───────────────────────────────────────────────────────────────
 
 impl Filter for GaussianBlur {
     fn apply(&self, mut frame: Frame) -> Frame {
         let w = frame.width();
         let h = frame.height();
         let kernel = &self.kernel;
-        let radius = (kernel.len() / 2) as i32;
 
-        // 1. Horizontal Pass: Blur from 'frame' into 'temp'
-        let mut temp = frame.clone();
-        for y in 0..h {
-            for x in 0..w {
-                let mut r_sum = 0.0;
-                let mut g_sum = 0.0;
-                let mut b_sum = 0.0;
-                let mut gray_sum = 0.0;
-
-                for k in 0..kernel.len() {
-                    let offset = k as i32 - radius;
-                    let nx = (x as i32 + offset).clamp(0, (w - 1) as i32) as u32;
-
-                    // We read from the original frame
-                    if let Ok(color) = frame.get_pixel(&Pos(nx, y)) {
-                        match color {
-                            Color::RGB(r, g, b) | Color::RGBA(r, g, b, _) => {
-                                r_sum += r as f32 * kernel[k];
-                                g_sum += g as f32 * kernel[k];
-                                b_sum += b as f32 * kernel[k];
-                            }
-                            Color::Gray(g) => {
-                                gray_sum += g as f32 * kernel[k];
-                            }
-                        }
-                    }
-                }
-
-                let new_color = self.create_color(frame.format(), r_sum, g_sum, b_sum, gray_sum);
-                temp.set_pixel(&Pos(x, y), &new_color).unwrap();
+        match &mut frame.data_mut() {
+            PixelData::RGB(r, g, b) => {
+                *r = blur_channel(r, w, h, kernel);
+                *g = blur_channel(g, w, h, kernel);
+                *b = blur_channel(b, w, h, kernel);
+            }
+            PixelData::RGBA(r, g, b, _a) => {
+                *r = blur_channel(r, w, h, kernel);
+                *g = blur_channel(g, w, h, kernel);
+                *b = blur_channel(b, w, h, kernel);
+                // alpha intentionally untouched
+            }
+            PixelData::GRAY(l) => {
+                *l = blur_channel(l, w, h, kernel);
             }
         }
 
-        // 2. Vertical Pass: Blur from 'temp' back into 'frame'
-        for y in 0..h {
-            for x in 0..w {
-                let mut r_sum = 0.0;
-                let mut g_sum = 0.0;
-                let mut b_sum = 0.0;
-                let mut gray_sum = 0.0;
-
-                for k in 0..kernel.len() {
-                    let offset = k as i32 - radius;
-                    let ny = (y as i32 + offset).clamp(0, (h - 1) as i32) as u32;
-
-                    // We read from the horizontally-blurred 'temp'
-                    if let Ok(color) = temp.get_pixel(&Pos(x, ny)) {
-                        match color {
-                            Color::RGB(r, g, b) | Color::RGBA(r, g, b, _) => {
-                                r_sum += r as f32 * kernel[k];
-                                g_sum += g as f32 * kernel[k];
-                                b_sum += b as f32 * kernel[k];
-                            }
-                            Color::Gray(g) => {
-                                gray_sum += g as f32 * kernel[k];
-                            }
-                        }
-                    }
-                }
-
-                let new_color = self.create_color(frame.format(), r_sum, g_sum, b_sum, gray_sum);
-                frame.set_pixel(&Pos(x, y), &new_color).unwrap();
-            }
-        }
         frame
-    }
-}
-
-// Helper implementation for GaussianBlur to keep apply() clean
-impl GaussianBlur {
-    fn create_color(&self, format: PixelFormat, r: f32, g: f32, b: f32, gray: f32) -> Color {
-        match format {
-            PixelFormat::RGB24 => Color::RGB(
-                r.clamp(0.0, 255.0) as u8,
-                g.clamp(0.0, 255.0) as u8,
-                b.clamp(0.0, 255.0) as u8,
-            ),
-            PixelFormat::RGBA32 => Color::RGBA(
-                r.clamp(0.0, 255.0) as u8,
-                g.clamp(0.0, 255.0) as u8,
-                b.clamp(0.0, 255.0) as u8,
-                255, // Keep alpha fully opaque or map it if needed
-            ),
-            PixelFormat::Gray8 => Color::Gray(gray.clamp(0.0, 255.0) as u8),
-        }
     }
 }

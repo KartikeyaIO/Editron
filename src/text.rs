@@ -1,38 +1,30 @@
+use crate::media::frame::{Color, Frame, FrameError, PixelData, Pos};
 use fontdue::{self, Font};
 
-use crate::media::frame::{Color, Frame, PixelFormat, Pos};
 pub struct Text {
     data: String,
     font: Font,
     size: f32,
     pos: Pos,
     color: Color,
-    format: PixelFormat,
 }
+
 #[derive(Debug)]
 pub enum TextError {
     FontNotFound,
-    FrameCreationFailed,
+    FrameCreationFailed(FrameError),
     InvalidDimensions,
     EmptyText,
-    UnsupportedPixelFormat,
 }
+
 impl Text {
-    pub fn new(
-        data: &str,
-        font: Font,
-        size: f32,
-        pos: Pos,
-        color: Color,
-        format: PixelFormat,
-    ) -> Self {
+    pub fn new(data: &str, font: Font, size: f32, pos: Pos, color: Color) -> Self {
         Self {
             data: data.to_string(),
             font,
             size,
             pos,
             color,
-            format,
         }
     }
     pub fn set_font(&mut self, font: Font) {
@@ -50,106 +42,90 @@ impl Text {
     pub fn set_text(&mut self, content: &str) {
         self.data = content.to_string();
     }
+
     pub fn picturize(&self) -> Result<Frame, TextError> {
         let font = &self.font;
         let data = &self.data;
         let size = self.size;
-        let format = self.format;
         let color = self.color;
 
         if data.is_empty() {
             return Err(TextError::EmptyText);
         }
 
-        let mut pen_x = 0.0;
-
+        // ── Measure pass ─────────────────────────────────────────────────────
+        let mut pen_x = 0.0f32;
         let mut min_x = f32::MAX;
         let mut max_x = f32::MIN;
-        let mut min_y = f32::MAX;
-        let mut max_y = f32::MIN;
         let mut max_top = f32::MIN;
         let mut min_bottom = f32::MAX;
 
         for ch in data.chars() {
             let (metrics, _) = font.rasterize(ch, size);
-
             let gx_min = pen_x + metrics.xmin as f32;
             let gx_max = gx_min + metrics.width as f32;
-
-            let gy_min = metrics.ymin as f32;
-            let gy_max = gy_min + metrics.height as f32;
-
             min_x = min_x.min(gx_min);
             max_x = max_x.max(gx_max);
-            min_y = min_y.min(gy_min);
-            max_y = max_y.max(gy_max);
-            let top = metrics.ymin as f32 + metrics.height as f32;
-            let bottom = metrics.ymin as f32;
-            max_top = max_top.max(top);
-            min_bottom = min_bottom.min(bottom);
-
+            max_top = max_top.max(metrics.ymin as f32 + metrics.height as f32);
+            min_bottom = min_bottom.min(metrics.ymin as f32);
             pen_x += metrics.advance_width;
         }
 
         let width = (max_x - min_x).ceil() as u32;
         let height = (max_top - min_bottom).ceil() as u32;
         let baseline = max_top;
+
         if width == 0 || height == 0 {
             return Err(TextError::InvalidDimensions);
         }
 
-        let bpp = format.bytes_per_pixel();
-        let mut buffer = vec![0u8; width as usize * height as usize * bpp];
+        // ── Allocate channel buffers ──────────────────────────────────────────
+        let pixel_count = width as usize * height as usize;
+        let mut r_buf = vec![0u8; pixel_count];
+        let mut g_buf = vec![0u8; pixel_count];
+        let mut b_buf = vec![0u8; pixel_count];
+        let mut a_buf = vec![0u8; pixel_count]; // only used for RGBA
 
-        let mut pen_x = 0.0;
+        // ── Rasterize pass ───────────────────────────────────────────────────
+        let mut pen_x = 0.0f32;
 
         for ch in data.chars() {
             let (metrics, bitmap) = font.rasterize(ch, size);
-
             let glyph_w = metrics.width as u32;
             let glyph_h = metrics.height as u32;
-
             let x_off = (pen_x + metrics.xmin as f32 - min_x).round() as i32;
             let y_off = (baseline - (metrics.ymin as f32 + metrics.height as f32)).round() as i32;
 
             for row in 0..glyph_h {
                 for col in 0..glyph_w {
-                    let src_index = (row * glyph_w + col) as usize;
-                    let coverage = bitmap[src_index];
-
+                    let coverage = bitmap[(row * glyph_w + col) as usize];
                     if coverage == 0 {
                         continue;
                     }
 
                     let dx = x_off + col as i32;
                     let dy = y_off + row as i32;
-
                     if dx < 0 || dy < 0 || dx >= width as i32 || dy >= height as i32 {
                         continue;
                     }
 
-                    let dst_index = (dy as usize * width as usize + dx as usize) * bpp;
+                    let idx = dy as usize * width as usize + dx as usize;
+                    let alpha = coverage as f32 / 255.0;
 
-                    match format {
-                        PixelFormat::Gray8 => {
-                            buffer[dst_index] = buffer[dst_index].max(coverage);
+                    match color {
+                        Color::Gray(_) => {
+                            r_buf[idx] = r_buf[idx].max(coverage);
                         }
-
-                        PixelFormat::RGB24 => {
-                            let alpha = coverage as f32 / 255.0;
-
-                            buffer[dst_index] = (color.r() as f32 * alpha) as u8;
-                            buffer[dst_index + 1] = (color.g() as f32 * alpha) as u8;
-                            buffer[dst_index + 2] = (color.b() as f32 * alpha) as u8;
+                        Color::RGB(_, _, _) => {
+                            r_buf[idx] = (color.r() as f32 * alpha) as u8;
+                            g_buf[idx] = (color.g() as f32 * alpha) as u8;
+                            b_buf[idx] = (color.b() as f32 * alpha) as u8;
                         }
-
-                        PixelFormat::RGBA32 => {
-                            let alpha = coverage as f32 / 255.0;
-
-                            buffer[dst_index] = (color.r() as f32 * alpha) as u8;
-                            buffer[dst_index + 1] = (color.g() as f32 * alpha) as u8;
-                            buffer[dst_index + 2] = (color.b() as f32 * alpha) as u8;
-                            buffer[dst_index + 3] = coverage;
+                        Color::RGBA(_, _, _, _) => {
+                            r_buf[idx] = (color.r() as f32 * alpha) as u8;
+                            g_buf[idx] = (color.g() as f32 * alpha) as u8;
+                            b_buf[idx] = (color.b() as f32 * alpha) as u8;
+                            a_buf[idx] = coverage;
                         }
                     }
                 }
@@ -158,6 +134,13 @@ impl Text {
             pen_x += metrics.advance_width;
         }
 
-        Frame::new(width, height, format, buffer).map_err(|_| TextError::FrameCreationFailed)
+        // ── Build PixelData from color variant ────────────────────────────────
+        let pixel_data = match color {
+            Color::Gray(_) => PixelData::GRAY(r_buf),
+            Color::RGB(_, _, _) => PixelData::RGB(r_buf, g_buf, b_buf),
+            Color::RGBA(_, _, _, _) => PixelData::RGBA(r_buf, g_buf, b_buf, a_buf),
+        };
+
+        Frame::new(width, height, pixel_data).map_err(TextError::FrameCreationFailed)
     }
 }

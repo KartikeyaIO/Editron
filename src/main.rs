@@ -11,7 +11,7 @@ use editron_v1::media::frame;
 use editron_v1::media::track::Track;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = "test_inputs/input.mp3";
+    let path = "test_inputs/video.mp4";
 
     //println!("{frame:?}");
     Ok(())

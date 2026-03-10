@@ -31,3 +31,6 @@ Advantages: PCM offers high noise immunity,, improved signal-to-noise ratio, and
 - Applications: Widely used in digital audio (CDs, WAV files), digital telephony, and data conversion.
 - Standards: Uses time-division multiplexing, typically with 24 channels (North American/Japanese) or 30 channels (European/Indian).
 - Types: Differential PCM (DPCM) and Adaptive Differential PCM (ADPCM) are variants for specialized applications
+
+
+# Video type:
