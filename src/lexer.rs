@@ -14,29 +14,22 @@ pub enum TokenKind {
     /// TokenKind enum stores the kind of tokens implimented in Editron
     Identifier,
     Int,
+    Float,
     String,
     LeftParen,
     RightParen,
     LeftBrace,
     RightBrace,
-    Plus,
-    Minus,
-    Star,
-    Slash,
     SemiColon,
     Equal,
-    GreaterThan,
-    LessThan,
-    Bool,
-    If,
-    Else,
-    Fn,
-    Let,
-    And,
-    Or,
-    Not,
-    Return,
-    Float,
+    Load,
+    Filter,
+    Export,
+    LeftBracket,
+    RightBracket,
+    Dot,
+    Comma,
+    DotDot,
     EOF,
 }
 
@@ -70,38 +63,26 @@ pub enum LexError {
 }
 
 pub fn char_to_token(c: char) -> Option<TokenKind> {
-    // converts the character to TokenKind
     match c {
         '(' => Some(TokenKind::LeftParen),
         ')' => Some(TokenKind::RightParen),
         '{' => Some(TokenKind::LeftBrace),
         '}' => Some(TokenKind::RightBrace),
-        '+' => Some(TokenKind::Plus),
-        '-' => Some(TokenKind::Minus),
-        '*' => Some(TokenKind::Star),
-        '/' => Some(TokenKind::Slash),
         '=' => Some(TokenKind::Equal),
-        '>' => Some(TokenKind::GreaterThan),
-        '<' => Some(TokenKind::LessThan),
         ';' => Some(TokenKind::SemiColon),
+        '[' => Some(TokenKind::LeftBracket),
+        ']' => Some(TokenKind::RightBracket),
+        ',' => Some(TokenKind::Comma),
         _ => None,
     }
 }
 
-fn identify_token(s: &str) -> Option<TokenKind> {
-    // The identify_token function identifies the tokens such as keywords
+fn identify_token(s: &str) -> TokenKind {
     match s {
-        "if" => Some(TokenKind::If),
-        "else" => Some(TokenKind::Else),
-        "and" => Some(TokenKind::And),
-        "or" => Some(TokenKind::Or),
-        "not" => Some(TokenKind::Not),
-        "return" => Some(TokenKind::Return),
-        "fn" => Some(TokenKind::Fn),
-        "let" => Some(TokenKind::Let),
-        "True" => Some(TokenKind::Bool),
-        "False" => Some(TokenKind::Bool),
-        _ => Some(TokenKind::Identifier),
+        "load" => TokenKind::Load,
+        "filter" => TokenKind::Filter,
+        "export" => TokenKind::Export,
+        _ => TokenKind::Identifier,
     }
 }
 
@@ -122,15 +103,6 @@ pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
 
         match state {
             State::Default => match c {
-                ';' => {
-                    tokens.push(Token {
-                        kind: TokenKind::SemiColon,
-                        value: ";".to_string(),
-                        line,
-                    });
-                    i += 1;
-                }
-
                 '\n' => {
                     line += 1;
                     i += 1;
@@ -157,6 +129,38 @@ pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
                     state = State::Number;
                     i += 1;
                 }
+                '.' => {
+                    if i + 1 < len && bytes[i + 1] as char == '.' {
+                        tokens.push(Token {
+                            kind: TokenKind::DotDot,
+                            value: "..".to_string(),
+                            line,
+                        });
+                        i += 2;
+                    } else {
+                        tokens.push(Token {
+                            kind: TokenKind::Dot,
+                            value: ".".to_string(),
+                            line,
+                        });
+                        i += 1;
+                    }
+                }
+
+                '-' => {
+                    if i + 1 < len && (bytes[i + 1] as char).is_ascii_digit() {
+                        buffer.clear();
+                        buffer.push('-');
+                        state = State::Number;
+                        i += 1;
+                    } else {
+                        return Err(LexError::InvalidCharacter {
+                            ch: '-',
+                            line,
+                            message: "Unexpected '-' — did you mean a negative number?".to_string(),
+                        });
+                    }
+                }
                 c => {
                     if let Some(kind) = char_to_token(c) {
                         tokens.push(Token {
@@ -180,7 +184,7 @@ pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
                     buffer.push(c);
                     i += 1;
                 } else {
-                    let kind = identify_token(&buffer).unwrap();
+                    let kind = identify_token(&buffer);
                     tokens.push(Token {
                         kind,
                         value: buffer.clone(),
@@ -214,15 +218,26 @@ pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
                     buffer.push(c);
                     i += 1;
                 } else if c == '.' && !buffer.contains('.') {
-                    buffer.push(c);
-                    i += 1;
-                } else if c == '.' && buffer.contains('.') {
-                    return Err(LexError::InvalidNumber {
-                        value: buffer.clone(),
-                        line,
-                        message: "The Number contains '.' more than once which is not allowed!"
-                            .to_string(),
-                    });
+                    // peek ahead — if next char is also '.', this is a DotDot, not a float
+                    if i + 1 < len && bytes[i + 1] as char == '.' {
+                        // flush current number first, don't consume the dots
+                        let kind = if buffer.contains('.') {
+                            TokenKind::Float
+                        } else {
+                            TokenKind::Int
+                        };
+                        tokens.push(Token {
+                            kind,
+                            value: buffer.clone(),
+                            line,
+                        });
+                        buffer.clear();
+                        state = State::Default;
+                        // don't advance i — let Default state handle the '..'
+                    } else {
+                        buffer.push(c);
+                        i += 1;
+                    }
                 } else {
                     let kind = if buffer.contains('.') {
                         TokenKind::Float
@@ -242,17 +257,39 @@ pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
             }
         }
     }
-    if matches!(state, State::String) {
-        return Err(LexError::UnterminatedString {
-            line,
-            message: "The string was never terminated!".to_string(),
-        });
+    match state {
+        State::String => {
+            return Err(LexError::UnterminatedString {
+                line,
+                message: "The string was never terminated!".to_string(),
+            });
+        }
+        State::Identifier => {
+            let kind = identify_token(&buffer);
+            tokens.push(Token {
+                kind,
+                value: buffer.clone(),
+                line,
+            });
+        }
+        State::Number => {
+            let kind = if buffer.contains('.') {
+                TokenKind::Float
+            } else {
+                TokenKind::Int
+            };
+            tokens.push(Token {
+                kind,
+                value: buffer.clone(),
+                line,
+            });
+        }
+        State::Default => {}
     }
     tokens.push(Token {
         kind: TokenKind::EOF,
         value: String::new(),
         line,
     });
-    //tokens.reverse();
     Ok(tokens)
 }

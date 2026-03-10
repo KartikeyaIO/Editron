@@ -1,18 +1,26 @@
-#![allow(warnings, unused)]
-use editron::experiments::audio_image_conversion::{frame_to_track, track_to_frame};
-use editron::io;
-use editron::io::export_frame_to_png;
-use editron::io::load_image;
-use editron::media::frame::{Color, Frame, FrameError, Pos};
-use editron_v1 as editron;
-use editron_v1::filter::Filter;
-use editron_v1::filters::gaussian_blur::GaussianBlur;
-use editron_v1::media::frame;
-use editron_v1::media::track::Track;
+mod lexer;
+use lexer::lexer;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = "test_inputs/video.mp4";
+fn main() {
+    let source = r#"
+load video = "input.mp4";
+load img = "frame.png";
+video[0..30].brightness(50);
+video[0, 3, 7].contrast(-20);
+img[0].blur(1.5);
+filter darken {
+    video[0].brightness(-10);
+    video[1].contrast(30);
+}
+export video "output.mp4";
+"#;
 
-    //println!("{frame:?}");
-    Ok(())
+    match lexer(source) {
+        Ok(tokens) => {
+            for token in tokens {
+                println!("{:?}", token);
+            }
+        }
+        Err(e) => println!("Error: {:?}", e),
+    }
 }
