@@ -22,7 +22,7 @@ pub mod text;
 #[test]
 fn test_image_operations() {
     let path = "test_inputs/image.jpg";
-    for fmt in ["rgb24", "rgba", "gray"] {
+    for fmt in ["rgb24", "rgba", "gray", "yuv420p"] {
         let mut frame = io::load_image(path, fmt).expect("Load failed! Check image or functions!");
 
         if let PixelData::RGBA(..) = frame.data() {
@@ -52,7 +52,7 @@ fn test_text_to_image() {
 fn test_blur_effect() {
     let path = "test_inputs/image.jpg";
     let blur = GaussianBlur::new(6.0);
-    for fmt in ["rgb24", "rgba", "gray"] {
+    for fmt in ["rgb24", "rgba", "gray", "yuv420p"] {
         let frame = io::load_image(path, fmt).expect("Load failed! Check image or functions!");
 
         let frame = blur.apply(frame);
@@ -68,7 +68,7 @@ fn test_blur_effect() {
 #[test]
 fn test_brightness() {
     let path = "test_inputs/image.jpg";
-    for fmt in ["rgb24", "rgba", "gray"] {
+    for fmt in ["rgb24", "rgba", "gray", "yuv420p"] {
         let mut frame = io::load_image(path, fmt).expect("Load failed!");
 
         frame.brightness(50);
@@ -84,7 +84,7 @@ fn test_brightness() {
 #[test]
 fn test_contrast() {
     let path = "test_inputs/image.jpg";
-    for fmt in ["rgb24", "rgba", "gray"] {
+    for fmt in ["rgb24", "rgba", "gray", "yuv420p"] {
         let mut frame = io::load_image(path, fmt).expect("Load failed!");
 
         frame.contrast().expect("Contrast failed!");

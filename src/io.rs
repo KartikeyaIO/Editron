@@ -81,6 +81,7 @@ pub fn load_image(path: &str, fmt: &str) -> Result<Frame, Box<dyn std::error::Er
         "rgb24" => 3,
         "rgba" => 4,
         "gray" => 1,
+        "yuv420p" => 0,
         _ => return Err("Invalid Pixel Format".into()),
     };
 
@@ -108,7 +109,10 @@ pub fn load_image(path: &str, fmt: &str) -> Result<Frame, Box<dyn std::error::Er
         return Err("ffmpeg decode failed".into());
     }
 
-    let expected_size = width as usize * height as usize * bpp;
+    let expected_size = match fmt {
+        "yuv420p" => width as usize * height as usize * 3 / 2,
+        _ => width as usize * height as usize * bpp,
+    };
     if buffer.len() != expected_size {
         return Err("Decoded buffer size mismatch".into());
     }
@@ -121,6 +125,14 @@ pub fn load_image(path: &str, fmt: &str) -> Result<Frame, Box<dyn std::error::Er
         4 => {
             let (r, g, b, a) = deinterleave_rgba(&buffer);
             PixelData::RGBA(r, g, b, a)
+        }
+        0 => {
+            let y_size = width as usize * height as usize;
+            let uv_size = (width as usize / 2) * (height as usize / 2);
+            let y = buffer[..y_size].to_vec();
+            let u = buffer[y_size..y_size + uv_size].to_vec();
+            let v = buffer[y_size + uv_size..].to_vec();
+            PixelData::YUV420(y, u, v)
         }
         1 => PixelData::GRAY(buffer),
         _ => return Err("Invalied PixelFormat".into()),
@@ -140,6 +152,13 @@ pub fn export_frame_to_png(
         PixelData::RGB(r, g, b) => reinterleave_rgb(r, g, b),
         PixelData::RGBA(r, g, b, a) => reinterleave_rgba(r, g, b, a),
         PixelData::GRAY(l) => l.clone(),
+        PixelData::YUV420(y, u, v) => {
+            let mut out = Vec::with_capacity(y.len() + u.len() + v.len());
+            out.extend_from_slice(y);
+            out.extend_from_slice(u);
+            out.extend_from_slice(v);
+            out
+        }
     };
 
     let mut child = Command::new("ffmpeg")

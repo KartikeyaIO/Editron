@@ -46,6 +46,7 @@ pub enum PixelData {
     RGB(Vec<u8>, Vec<u8>, Vec<u8>),
     RGBA(Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>),
     GRAY(Vec<u8>),
+    YUV420(Vec<u8>, Vec<u8>, Vec<u8>),
 }
 
 impl PixelData {
@@ -54,6 +55,7 @@ impl PixelData {
             PixelData::RGB(..) => 3,
             PixelData::GRAY(_) => 1,
             PixelData::RGBA(..) => 4,
+            _ => 0,
         }
     }
     pub fn ffmpeg_fmt(&self) -> &str {
@@ -61,6 +63,7 @@ impl PixelData {
             PixelData::RGB(..) => "rgb24",
             PixelData::GRAY(_) => "gray",
             PixelData::RGBA(..) => "rgba",
+            PixelData::YUV420(..) => "yuv420p",
         }
     }
     pub fn len(&self) -> usize {
@@ -68,6 +71,7 @@ impl PixelData {
             PixelData::RGB(d, _, _) => d.len(),
             PixelData::GRAY(d) => d.len(),
             PixelData::RGBA(d, _, _, _) => d.len(),
+            PixelData::YUV420(y, _, _) => y.len(),
         }
     }
 }
@@ -89,6 +93,7 @@ pub enum FrameError {
     BlitFailed,
     InvalidOpacityValue,
     EmptyFrame,
+    YUVNotApplied,
 }
 impl fmt::Display for FrameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -113,6 +118,9 @@ impl fmt::Display for FrameError {
                     f,
                     "The data in Frame is Empty! The Image might be corrupted."
                 )
+            }
+            FrameError::YUVNotApplied => {
+                write!(f, "YUV Format is Not Implemented for this function.")
             }
         }
     }
@@ -145,6 +153,7 @@ impl Frame {
                 b.iter_mut().for_each(|v| *v = clamp(*v));
             }
             PixelData::GRAY(l) => l.iter_mut().for_each(|v| *v = clamp(*v)),
+            PixelData::YUV420(y, _, _) => y.iter_mut().for_each(|v| *v = clamp(*v)),
         }
     }
 
@@ -185,6 +194,7 @@ impl Frame {
             PixelData::RGB(r, g, b) => Ok(Color::RGB(r[index], g[index], b[index])),
             PixelData::RGBA(r, g, b, a) => Ok(Color::RGBA(r[index], g[index], b[index], a[index])),
             PixelData::GRAY(l) => Ok(Color::Gray(l[index])),
+            _ => return Err(FrameError::YUVNotApplied),
         }
     }
 
@@ -271,6 +281,16 @@ impl Frame {
                         .iter_mut()
                         .for_each(|v| *v = ((*v - min) as u16 * 255 / offset as u16) as u8);
                 }
+            }
+            PixelData::YUV420(l, _, _) => {
+                let max = *l.iter().max().ok_or(FrameError::EmptyFrame)?;
+                let min = *l.iter().min().ok_or(FrameError::EmptyFrame)?;
+                let offset = max - min;
+                if offset == 0 {
+                    return Ok(());
+                }
+                l.iter_mut()
+                    .for_each(|v| *v = ((*v - min) as u16 * 255 / offset as u16) as u8);
             }
         }
         Ok(())

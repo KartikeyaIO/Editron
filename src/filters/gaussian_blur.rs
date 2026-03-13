@@ -96,6 +96,11 @@ impl Filter for GaussianBlur {
             PixelData::GRAY(l) => {
                 *l = blur_channel(l, w, h, kernel);
             }
+            PixelData::YUV420(y, u, v) => {
+                *y = blur_channel(y, w, h, kernel);
+                *u = blur_channel(u, w / 2, h / 2, kernel);
+                *v = blur_channel(v, w / 2, h / 2, kernel);
+            }
         }
 
         frame

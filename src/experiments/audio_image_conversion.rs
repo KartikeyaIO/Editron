@@ -38,6 +38,7 @@ pub fn frame_to_track(f: &Frame, channels: u16) -> Result<Track, Error> {
                 buffer.push(sample3);
             }
         }
+        _ => return Err(Error::other("Conversion is not possible for YUV")),
     }
 
     Ok(Track::new(44100, channels, buffer))
