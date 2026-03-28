@@ -1,276 +1,285 @@
-use crate::media::frame::{Frame, PixelData};
-use crate::media::track::Track;
-use std::io::Read;
-use std::io::Write;
-use std::process::{Command, Stdio};
-use std::slice;
+use crate::media::frame::Frame;
+use crate::media::frame::{FrameError, PixelData};
+use ffmpeg::media::Type;
+use ffmpeg::software::scaling::{context::Context, flag::Flags};
+use ffmpeg::util::format::pixel::Pixel;
+use ffmpeg_next as ffmpeg;
+use ffmpeg_next::format::input;
+use image::GenericImageView;
+use image::codecs::png::PngEncoder;
+use image::io::Reader;
+use image::{ExtendedColorType, ImageEncoder};
+use reel::{
+    error::ReelResult,
+    frame::{FrameHeader, YuvFrame},
+    header::FileHeader,
+    writer::ReelWriter,
+};
+use std::fs::File;
+use std::io::BufWriter;
+use std::time::Instant;
 
-//Helper Functons
-
-fn deinterleave_rgb(buffer: &[u8]) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
-    let pixel_count = buffer.len() / 3;
-    let mut r = Vec::with_capacity(pixel_count);
-    let mut g = Vec::with_capacity(pixel_count);
-    let mut b = Vec::with_capacity(pixel_count);
-    for chunk in buffer.chunks_exact(3) {
-        r.push(chunk[0]);
-        g.push(chunk[1]);
-        b.push(chunk[2]);
-    }
-    (r, g, b)
+#[derive(Debug)]
+pub enum IOError {
+    FileNotFound,
+    InvalidData,
+    EncodingFailed,
+    FFmpegError,
+    FFmpegDecodingFailed,
+    ReelError,
 }
 
-fn deinterleave_rgba(buffer: &[u8]) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) {
-    let pixel_count = buffer.len() / 4;
-    let mut r = Vec::with_capacity(pixel_count);
-    let mut g = Vec::with_capacity(pixel_count);
-    let mut b = Vec::with_capacity(pixel_count);
-    let mut a = Vec::with_capacity(pixel_count);
-    for chunk in buffer.chunks_exact(4) {
-        r.push(chunk[0]);
-        g.push(chunk[1]);
-        b.push(chunk[2]);
-        a.push(chunk[3]);
-    }
-    (r, g, b, a)
-}
+pub fn load_image(path: &str, fmt: &str) -> Result<Frame, FrameError> {
+    let img = Reader::open(path)
+        .map_err(|_| FrameError::EmptyFrame)?
+        .decode()
+        .map_err(|_| FrameError::EmptyFrame)?;
 
-fn reinterleave_rgb(r: &[u8], g: &[u8], b: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(r.len() * 3);
-    for i in 0..r.len() {
-        out.push(r[i]);
-        out.push(g[i]);
-        out.push(b[i]);
-    }
-    out
-}
+    let (width, height) = img.dimensions();
+    let pixel_count = (width * height) as usize;
 
-fn reinterleave_rgba(r: &[u8], g: &[u8], b: &[u8], a: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(r.len() * 4);
-    for i in 0..r.len() {
-        out.push(r[i]);
-        out.push(g[i]);
-        out.push(b[i]);
-        out.push(a[i]);
-    }
-    out
-}
+    let data = match fmt.to_lowercase().as_str() {
+        "rgb" => {
+            let rgb = img.to_rgb8();
+            let raw = rgb.as_raw();
 
-//Images
+            let mut r = Vec::with_capacity(pixel_count);
+            let mut g = Vec::with_capacity(pixel_count);
+            let mut b = Vec::with_capacity(pixel_count);
 
-pub fn load_image(path: &str, fmt: &str) -> Result<Frame, Box<dyn std::error::Error>> {
-    let probe_output = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height",
-            "-of",
-            "csv=p=0",
-            path,
-        ])
-        .output()?;
+            for chunk in raw.chunks_exact(3) {
+                r.push(chunk[0]);
+                g.push(chunk[1]);
+                b.push(chunk[2]);
+            }
 
-    if !probe_output.status.success() {
-        return Err("ffprobe failed".into());
-    }
-
-    let bpp = match fmt {
-        "rgb24" => 3,
-        "rgba" => 4,
-        "gray" => 1,
-        "yuv420p" => 0,
-        _ => return Err("Invalid Pixel Format".into()),
-    };
-
-    let dims = String::from_utf8(probe_output.stdout)?;
-    let mut parts = dims.trim().split(',');
-    let width: u32 = parts.next().ok_or("Missing width")?.parse()?;
-    let height: u32 = parts.next().ok_or("Missing height")?.parse()?;
-
-    let mut child = Command::new("ffmpeg")
-        .args([
-            "-v", "error", "-i", path, "-f", "rawvideo", "-pix_fmt", fmt, "-",
-        ])
-        .stdout(Stdio::piped())
-        .spawn()?;
-
-    let mut buffer = Vec::new();
-    child
-        .stdout
-        .as_mut()
-        .ok_or("Failed to capture ffmpeg stdout")?
-        .read_to_end(&mut buffer)?;
-
-    let status = child.wait()?;
-    if !status.success() {
-        return Err("ffmpeg decode failed".into());
-    }
-
-    let expected_size = match fmt {
-        "yuv420p" => width as usize * height as usize * 3 / 2,
-        _ => width as usize * height as usize * bpp,
-    };
-    if buffer.len() != expected_size {
-        return Err("Decoded buffer size mismatch".into());
-    }
-
-    let data = match bpp {
-        3 => {
-            let (r, g, b) = deinterleave_rgb(&buffer);
             PixelData::RGB(r, g, b)
         }
-        4 => {
-            let (r, g, b, a) = deinterleave_rgba(&buffer);
+
+        "rgba" => {
+            let rgba = img.to_rgba8();
+            let raw = rgba.as_raw();
+
+            let mut r = Vec::with_capacity(pixel_count);
+            let mut g = Vec::with_capacity(pixel_count);
+            let mut b = Vec::with_capacity(pixel_count);
+            let mut a = Vec::with_capacity(pixel_count);
+
+            for chunk in raw.chunks_exact(4) {
+                r.push(chunk[0]);
+                g.push(chunk[1]);
+                b.push(chunk[2]);
+                a.push(chunk[3]);
+            }
+
             PixelData::RGBA(r, g, b, a)
         }
-        0 => {
-            let y_size = width as usize * height as usize;
-            let uv_size = (width as usize / 2) * (height as usize / 2);
-            let y = buffer[..y_size].to_vec();
-            let u = buffer[y_size..y_size + uv_size].to_vec();
-            let v = buffer[y_size + uv_size..].to_vec();
-            PixelData::YUV420(y, u, v)
+
+        "gray" | "l8" => {
+            let gray = img.to_luma8();
+            PixelData::GRAY(gray.into_raw())
         }
-        1 => PixelData::GRAY(buffer),
-        _ => return Err("Invalied PixelFormat".into()),
+
+        "yuv420" => {
+            // Enforce even dimensions
+            if width % 2 != 0 || height % 2 != 0 {
+                return Err(FrameError::InvalidFrameSize);
+            }
+
+            let rgb = img.to_rgb8();
+            let raw = rgb.as_raw();
+
+            let mut y_plane = vec![0u8; (width * height) as usize];
+            let mut u_plane = vec![0u8; ((width / 2) * (height / 2)) as usize];
+            let mut v_plane = vec![0u8; ((width / 2) * (height / 2)) as usize];
+
+            // --- Y PLANE ---
+            for y in 0..height {
+                for x in 0..width {
+                    let idx = ((y * width + x) * 3) as usize;
+
+                    let r = raw[idx] as f32;
+                    let g = raw[idx + 1] as f32;
+                    let b = raw[idx + 2] as f32;
+
+                    let y_val = (0.299 * r + 0.587 * g + 0.114 * b).clamp(0.0, 255.0) as u8;
+
+                    y_plane[(y * width + x) as usize] = y_val;
+                }
+            }
+
+            // --- U & V (4:2:0 subsampling) ---
+            for y in (0..height).step_by(2) {
+                for x in (0..width).step_by(2) {
+                    let mut u_sum = 0.0;
+                    let mut v_sum = 0.0;
+
+                    // 2x2 block
+                    for dy in 0..2 {
+                        for dx in 0..2 {
+                            let px = x + dx;
+                            let py = y + dy;
+
+                            let idx = ((py * width + px) * 3) as usize;
+
+                            let r = raw[idx] as f32;
+                            let g = raw[idx + 1] as f32;
+                            let b = raw[idx + 2] as f32;
+
+                            u_sum += -0.169 * r - 0.331 * g + 0.5 * b + 128.0;
+                            v_sum += 0.5 * r - 0.419 * g - 0.081 * b + 128.0;
+                        }
+                    }
+
+                    let index = ((y / 2) * (width / 2) + (x / 2)) as usize;
+
+                    u_plane[index] = (u_sum * 0.25).clamp(0.0, 255.0) as u8;
+                    v_plane[index] = (v_sum * 0.25).clamp(0.0, 255.0) as u8;
+                }
+            }
+
+            PixelData::YUV420(y_plane, u_plane, v_plane)
+        }
+
+        _ => return Err(FrameError::InvalidPixelFormat),
     };
 
-    Ok(Frame::new(width, height, data)?)
+    Frame::new(width, height, data)
 }
 
-pub fn export_frame_to_png(
-    frame: &Frame,
-    output_path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn encode_image(frame: &Frame, path: &str) -> Result<(), IOError> {
+    let file = match File::create(path) {
+        Ok(val) => val,
+        Err(_) => return Err(IOError::FileNotFound),
+    };
+    let writer = BufWriter::new(file);
+    let encoder = PngEncoder::new(writer);
     let width = frame.width();
     let height = frame.height();
-
-    let raw = match frame.data() {
-        PixelData::RGB(r, g, b) => reinterleave_rgb(r, g, b),
-        PixelData::RGBA(r, g, b, a) => reinterleave_rgba(r, g, b, a),
-        PixelData::GRAY(l) => l.clone(),
-        PixelData::YUV420(y, u, v) => {
-            let mut out = Vec::with_capacity(y.len() + u.len() + v.len());
-            out.extend_from_slice(y);
-            out.extend_from_slice(u);
-            out.extend_from_slice(v);
-            out
-        }
+    let data = match frame.data().to_rgba8(width, height) {
+        Ok(val) => val,
+        Err(_) => return Err(IOError::InvalidData),
     };
 
-    let mut child = Command::new("ffmpeg")
-        .args([
-            "-v",
-            "error",
-            "-f",
-            "rawvideo",
-            "-pix_fmt",
-            frame.data().ffmpeg_fmt(),
-            "-s",
-            &format!("{}x{}", width, height),
-            "-i",
-            "-",
-            "-y",
-            "-update",
-            "1",
-            output_path,
-        ])
-        .stdin(Stdio::piped())
-        .spawn()?;
-
-    child
-        .stdin
-        .as_mut()
-        .ok_or("Failed to open ffmpeg stdin")?
-        .write_all(&raw)?;
-
-    let status = child.wait()?;
-    if !status.success() {
-        return Err("ffmpeg failed to write image".into());
-    }
-
-    Ok(())
+    encoder
+        .write_image(
+            &data.interleave()[..],
+            width,
+            height,
+            ExtendedColorType::Rgba8,
+        )
+        .map_err(|_| IOError::EncodingFailed)
 }
 
-//Audio
-
-pub fn decode_audio(path: &str) -> Result<(u32, u8, Vec<f32>), Box<dyn std::error::Error>> {
-    let mut child = Command::new("ffmpeg")
-        .args([
-            "-i",
-            path,
-            "-f",
-            "f32le",
-            "-acodec",
-            "pcm_f32le",
-            "-ac",
-            "2",
-            "-ar",
-            "44100",
-            "pipe:1",
-        ])
-        .stdout(Stdio::piped())
-        .spawn()?;
-
-    let mut raw_output = Vec::new();
-    child
-        .stdout
-        .as_mut()
-        .unwrap()
-        .read_to_end(&mut raw_output)?;
-
-    let status = child.wait()?;
-    if !status.success() {
-        return Err("ffmpeg audio decode failed".into());
+fn copy_plane(
+    frame: &ffmpeg::util::frame::Video,
+    plane: usize,
+    width: usize,
+    height: usize,
+) -> Vec<u8> {
+    let stride = frame.stride(plane);
+    let data = frame.data(plane);
+    let mut out = Vec::with_capacity(width * height);
+    for row in 0..height {
+        let start = row * stride;
+        out.extend_from_slice(&data[start..start + width]);
     }
-
-    let samples: Vec<f32> = raw_output
-        .chunks_exact(4)
-        .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()))
-        .collect();
-
-    Ok((44100, 2, samples))
+    out
 }
+// Video
+pub fn convert_to_reel(input_path: &str, output_path: &str) -> Result<(), IOError> {
+    ffmpeg::init().map_err(|_| IOError::FFmpegError)?;
+    let mut ictx = match input(input_path) {
+        Ok(val) => val,
+        Err(_) => {
+            return Err(IOError::FFmpegError);
+        }
+    };
+    let input = match ictx.streams().best(Type::Video).ok_or("No video stream") {
+        Ok(val) => val,
+        Err(_) => {
+            return Err(IOError::FFmpegError);
+        }
+    };
+    let video_stream_index = input.index();
+    let mut decoder = ffmpeg::codec::context::Context::from_parameters(input.parameters())
+        .map_err(|_| IOError::FFmpegError)?
+        .decoder()
+        .video()
+        .map_err(|_| IOError::FFmpegError)?;
+    let mut scaler = match Context::get(
+        decoder.format(),
+        decoder.width(),
+        decoder.height(),
+        Pixel::YUV420P, // Destination format
+        decoder.width(),
+        decoder.height(),
+        Flags::BILINEAR,
+    ) {
+        Ok(val) => val,
+        Err(_) => return Err(IOError::FFmpegError),
+    };
+    let total_frames = input.frames() as u64;
+    let frame_rate = input.avg_frame_rate(); // Rational
+    let fps_num = frame_rate.numerator() as u32;
+    let fps_den = frame_rate.denominator() as u32;
+    let header = FileHeader::new(
+        total_frames,
+        decoder.width(),
+        decoder.height(),
+        fps_num,
+        fps_den,
+    );
 
-pub fn encode_mp3(track: &Track, output: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut child = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-f",
-            "f32le",
-            "-ac",
-            &track.channels().to_string(),
-            "-ar",
-            &track.sample_rate().to_string(),
-            "-i",
-            "pipe:0",
-            "-vn",
-            "-c:a",
-            "libmp3lame",
-            output,
-        ])
-        .stdin(Stdio::piped())
-        .spawn()?;
+    let mut writer = ReelWriter::new(output_path, header).map_err(|_| IOError::ReelError)?;
+    let mut index = 0;
+    for (stream, packet) in ictx.packets() {
+        if stream.index() == video_stream_index {
+            decoder
+                .send_packet(&packet)
+                .map_err(|_| IOError::FFmpegDecodingFailed)?;
+            let mut decoded = ffmpeg::util::frame::Video::empty();
+            while decoder.receive_frame(&mut decoded).is_ok() {
+                //let t0 = Instant::now();
+                let mut yuv_frame = ffmpeg::util::frame::Video::empty();
+                scaler
+                    .run(&decoded, &mut yuv_frame)
+                    .map_err(|_| IOError::FFmpegDecodingFailed)?;
+                //println!("scale: {:?}", t0.elapsed());
+                println!("Y plane buffer size: {}", yuv_frame.data(0).len());
+                println!(
+                    "Y plane expected:    {}",
+                    decoder.width() * decoder.height()
+                );
+                println!("Y stride:            {}", yuv_frame.stride(0));
+                // Separating Channels
+                //let t1 = Instant::now();
+                let width = decoder.width() as usize;
+                let height = decoder.height() as usize;
 
-    {
-        let stdin = child.stdin.as_mut().unwrap();
-        let samples = track.buffer();
-        let byte_slice: &[u8] = unsafe {
-            slice::from_raw_parts(
-                samples.as_ptr() as *const u8,
-                samples.len() * std::mem::size_of::<f32>(),
-            )
-        };
-        stdin.write_all(byte_slice)?;
+                let ydata = copy_plane(&yuv_frame, 0, width, height);
+                let udata = copy_plane(&yuv_frame, 1, width / 2, height / 2);
+                let vdata = copy_plane(&yuv_frame, 2, width / 2, height / 2);
+                //println!("copy: {:?}", t1.elapsed());
+                let frame_header = FrameHeader::new(
+                    ydata.len() as u32,
+                    udata.len() as u32,
+                    vdata.len() as u32,
+                    index,
+                );
+                let frame = YuvFrame::new(frame_header, &ydata[..], &udata[..], &vdata[..]);
+                //let t2 = Instant::now();
+
+                writer
+                    .write_frame(frame)
+                    .map_err(|_| IOError::EncodingFailed)?;
+                index += 1;
+                //println!("write: {:?}", t2.elapsed());
+            }
+        }
     }
-
-    let status = child.wait()?;
-    if !status.success() {
-        return Err("ffmpeg mp3 encoding failed".into());
-    }
-
+    writer
+        .finalize(fps_num, fps_den)
+        .map_err(|_| IOError::EncodingFailed)?;
     Ok(())
 }

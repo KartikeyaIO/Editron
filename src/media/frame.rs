@@ -74,6 +74,78 @@ impl PixelData {
             PixelData::YUV420(y, _, _) => y.len(),
         }
     }
+    pub fn interleave(&self) -> Vec<u8> {
+        match self {
+            PixelData::GRAY(v) => v.clone(),
+            PixelData::RGB(r, g, b) => {
+                let mut v = Vec::new();
+                for i in 0..r.len() {
+                    v.push(r[i]);
+                    v.push(g[i]);
+                    v.push(b[i]);
+                }
+                v
+            }
+            PixelData::RGBA(r, g, b, a) => {
+                let mut v = Vec::new();
+                for i in 0..r.len() {
+                    v.push(r[i]);
+                    v.push(g[i]);
+                    v.push(b[i]);
+                    v.push(a[i]);
+                }
+                v
+            }
+            PixelData::YUV420(y, _, _) => {
+                println!(
+                    "The Function is not implmented for YUV420\n The Returned slice is the luma values!"
+                );
+                return y.clone();
+            }
+        }
+    }
+    pub fn to_rgba8(&self, width: u32, height: u32) -> Result<PixelData, FrameError> {
+        match self {
+            PixelData::GRAY(v) => {
+                let l = v.len();
+                let a = vec![255u8; l];
+                Ok(PixelData::RGBA(v.clone(), v.clone(), v.clone(), a))
+            }
+            PixelData::RGB(r, g, b) => {
+                let l = r.len();
+                let a = vec![255u8; l];
+                Ok(PixelData::RGBA(r.clone(), g.clone(), b.clone(), a))
+            }
+            PixelData::YUV420(y_plane, u_plane, v_plane) => {
+                if width % 2 != 0 || height % 2 != 0 {
+                    return Err(FrameError::InvalidFrameSize);
+                }
+                let mut r = Vec::with_capacity((width * height) as usize);
+                let mut g = Vec::with_capacity((width * height) as usize);
+                let mut b = Vec::with_capacity((width * height) as usize);
+                let a = vec![255u8; (width * height) as usize];
+                for y in 0..height {
+                    for x in 0..width {
+                        let yidx = (y * width + x) as usize;
+                        let uvidx = ((y / 2) * (width / 2) + (x / 2)) as usize;
+                        let y_val = y_plane[yidx] as f32;
+                        let u_val = u_plane[uvidx] as f32 - 128.0;
+                        let v_val = v_plane[uvidx] as f32 - 128.0;
+                        let rval = (y_val + 1.402 * v_val).clamp(0.0, 255.0) as u8;
+                        let gval = (y_val - 0.344 * u_val - 0.714 * v_val).clamp(0.0, 255.0) as u8;
+                        let bval = (y_val + 1.772 * u_val).clamp(0.0, 255.0) as u8;
+                        r.push(rval);
+                        g.push(gval);
+                        b.push(bval);
+                    }
+                }
+                Ok(PixelData::RGBA(r, g, b, a))
+            }
+            PixelData::RGBA(r, g, b, a) => {
+                Ok(PixelData::RGBA(r.clone(), g.clone(), b.clone(), a.clone()))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

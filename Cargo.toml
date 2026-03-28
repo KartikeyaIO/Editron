@@ -4,6 +4,10 @@ version = "0.2.0"
 edition = "2024"
 
 [dependencies]
+ffmpeg-next = "8.1.0"
 fontdue = "0.9.3"
+image = "0.25.10"
+reel = {path = "../reel"}
+symphonia = "0.5.5"
 
 #
