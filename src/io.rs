@@ -18,6 +18,7 @@ use reel::{
 use std::fs::File;
 use std::io::BufWriter;
 use std::time::Instant;
+use symphonia;
 
 #[derive(Debug)]
 pub enum IOError {
@@ -246,12 +247,6 @@ pub fn convert_to_reel(input_path: &str, output_path: &str) -> Result<(), IOErro
                     .run(&decoded, &mut yuv_frame)
                     .map_err(|_| IOError::FFmpegDecodingFailed)?;
                 //println!("scale: {:?}", t0.elapsed());
-                println!("Y plane buffer size: {}", yuv_frame.data(0).len());
-                println!(
-                    "Y plane expected:    {}",
-                    decoder.width() * decoder.height()
-                );
-                println!("Y stride:            {}", yuv_frame.stride(0));
                 // Separating Channels
                 //let t1 = Instant::now();
                 let width = decoder.width() as usize;
@@ -283,3 +278,5 @@ pub fn convert_to_reel(input_path: &str, output_path: &str) -> Result<(), IOErro
         .map_err(|_| IOError::EncodingFailed)?;
     Ok(())
 }
+
+// Audio Handling

@@ -1019,6 +1019,7 @@ dependencies = [
  "bytemuck",
  "crc32fast",
  "lz4_flex",
+ "rayon",
  "thiserror",
  "zstd",
 ]

@@ -13,6 +13,7 @@ pub struct Token {
 pub enum TokenKind {
     /// TokenKind enum stores the kind of tokens implimented in Editron
     Identifier,
+    Import,
     Int,
     Float,
     String,
@@ -82,6 +83,7 @@ fn identify_token(s: &str) -> TokenKind {
         "load" => TokenKind::Load,
         "filter" => TokenKind::Filter,
         "export" => TokenKind::Export,
+        "import" => TokenKind::Import,
         _ => TokenKind::Identifier,
     }
 }

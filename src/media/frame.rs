@@ -1,6 +1,7 @@
 use std::fmt;
 
 // CONFIGS
+
 #[derive(Debug, Clone, Copy)]
 pub enum Color {
     RGB(u8, u8, u8),
@@ -153,7 +154,6 @@ impl PixelData {
 pub struct Frame {
     width: u32,
     height: u32,
-
     data: PixelData,
 }
 
@@ -208,6 +208,7 @@ impl Frame {
             Ok(Self {
                 width,
                 height,
+
                 data,
             })
         } else {
