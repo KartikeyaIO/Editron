@@ -1,24 +1,30 @@
 use crate::media::frame::Frame;
 use crate::media::frame::{FrameError, PixelData};
-use ffmpeg::media::Type;
+use crate::media::track::{AudioFrame, Track};
+use crate::media::video::TimeStamp;
+use crate::media::video::VideoFrame;
+
 use ffmpeg::software::scaling::{context::Context, flag::Flags};
 use ffmpeg::util::format::pixel::Pixel;
 use ffmpeg_next as ffmpeg;
-use ffmpeg_next::format::input;
+
+use ffmpeg_next::format::context::Input as FfmpegInput;
+use hound::{SampleFormat, WavSpec, WavWriter};
 use image::GenericImageView;
 use image::codecs::png::PngEncoder;
 use image::io::Reader;
 use image::{ExtendedColorType, ImageEncoder};
-use reel::{
-    error::ReelResult,
-    frame::{FrameHeader, YuvFrame},
-    header::FileHeader,
-    writer::ReelWriter,
-};
 use std::fs::File;
 use std::io::BufWriter;
-use std::time::Instant;
-use symphonia;
+use std::path::Path;
+use symphonia::core::audio::AudioBufferRef;
+use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::errors::Error as SymphoniaError;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use symphonia::default;
 
 #[derive(Debug)]
 pub enum IOError {
@@ -172,111 +178,643 @@ pub fn encode_image(frame: &Frame, path: &str) -> Result<(), IOError> {
         .map_err(|_| IOError::EncodingFailed)
 }
 
-fn copy_plane(
-    frame: &ffmpeg::util::frame::Video,
-    plane: usize,
-    width: usize,
-    height: usize,
-) -> Vec<u8> {
-    let stride = frame.stride(plane);
-    let data = frame.data(plane);
-    let mut out = Vec::with_capacity(width * height);
-    for row in 0..height {
-        let start = row * stride;
-        out.extend_from_slice(&data[start..start + width]);
-    }
-    out
-}
+// fn copy_plane(
+//     frame: &ffmpeg::util::frame::Video,
+//     plane: usize,
+//     width: usize,
+//     height: usize,
+// ) -> Vec<u8> {
+//     let stride = frame.stride(plane);
+//     let data = frame.data(plane);
+//     let mut out = Vec::with_capacity(width * height);
+//     for row in 0..height {
+//         let start = row * stride;
+//         out.extend_from_slice(&data[start..start + width]);
+//     }
+//     out
+// }
 // Video
-pub fn convert_to_reel(input_path: &str, output_path: &str) -> Result<(), IOError> {
-    ffmpeg::init().map_err(|_| IOError::FFmpegError)?;
-    let mut ictx = match input(input_path) {
-        Ok(val) => val,
-        Err(_) => {
-            return Err(IOError::FFmpegError);
-        }
-    };
-    let input = match ictx.streams().best(Type::Video).ok_or("No video stream") {
-        Ok(val) => val,
-        Err(_) => {
-            return Err(IOError::FFmpegError);
-        }
-    };
-    let video_stream_index = input.index();
-    let mut decoder = ffmpeg::codec::context::Context::from_parameters(input.parameters())
-        .map_err(|_| IOError::FFmpegError)?
-        .decoder()
-        .video()
-        .map_err(|_| IOError::FFmpegError)?;
-    let mut scaler = match Context::get(
-        decoder.format(),
-        decoder.width(),
-        decoder.height(),
-        Pixel::YUV420P, // Destination format
-        decoder.width(),
-        decoder.height(),
-        Flags::BILINEAR,
-    ) {
-        Ok(val) => val,
-        Err(_) => return Err(IOError::FFmpegError),
-    };
-    let total_frames = input.frames() as u64;
-    let frame_rate = input.avg_frame_rate(); // Rational
-    let fps_num = frame_rate.numerator() as u32;
-    let fps_den = frame_rate.denominator() as u32;
-    let header = FileHeader::new(
-        total_frames,
-        decoder.width(),
-        decoder.height(),
-        fps_num,
-        fps_den,
-    );
 
-    let mut writer = ReelWriter::new(output_path, header).map_err(|_| IOError::ReelError)?;
-    let mut index = 0;
-    for (stream, packet) in ictx.packets() {
-        if stream.index() == video_stream_index {
-            decoder
-                .send_packet(&packet)
-                .map_err(|_| IOError::FFmpegDecodingFailed)?;
-            let mut decoded = ffmpeg::util::frame::Video::empty();
-            while decoder.receive_frame(&mut decoded).is_ok() {
-                //let t0 = Instant::now();
-                let mut yuv_frame = ffmpeg::util::frame::Video::empty();
-                scaler
-                    .run(&decoded, &mut yuv_frame)
-                    .map_err(|_| IOError::FFmpegDecodingFailed)?;
-                //println!("scale: {:?}", t0.elapsed());
-                // Separating Channels
-                //let t1 = Instant::now();
-                let width = decoder.width() as usize;
-                let height = decoder.height() as usize;
+pub struct Video {
+    ictx: FfmpegInput,
+    decoder: ffmpeg::decoder::Video,
+    video_index: usize,
+    time_base: ffmpeg::Rational,
+}
 
-                let ydata = copy_plane(&yuv_frame, 0, width, height);
-                let udata = copy_plane(&yuv_frame, 1, width / 2, height / 2);
-                let vdata = copy_plane(&yuv_frame, 2, width / 2, height / 2);
-                //println!("copy: {:?}", t1.elapsed());
-                let frame_header = FrameHeader::new(
-                    ydata.len() as u32,
-                    udata.len() as u32,
-                    vdata.len() as u32,
-                    index,
-                );
-                let frame = YuvFrame::new(frame_header, &ydata[..], &udata[..], &vdata[..]);
-                //let t2 = Instant::now();
+impl Video {
+    pub fn open(path: &str) -> Result<Self, IOError> {
+        ffmpeg_next::init().map_err(|_| IOError::FFmpegError)?;
 
-                writer
-                    .write_frame(frame)
-                    .map_err(|_| IOError::EncodingFailed)?;
-                index += 1;
-                //println!("write: {:?}", t2.elapsed());
+        let ictx = ffmpeg::format::input(&path).map_err(|_| IOError::FFmpegError)?;
+
+        let stream = ictx
+            .streams()
+            .best(ffmpeg::media::Type::Video)
+            .ok_or(IOError::FFmpegError)?;
+
+        let video_index = stream.index();
+        let time_base = stream.time_base();
+
+        let decoder = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
+            .map_err(|_| IOError::FFmpegError)?
+            .decoder()
+            .video()
+            .map_err(|_| IOError::FFmpegError)?;
+
+        Ok(Self {
+            ictx,
+            decoder,
+            video_index,
+            time_base,
+        })
+    }
+
+    /// Seek to the nearest keyframe at or before `pts`, then decode forward
+    /// until we land on the exact frame at that pts.
+    /// Returns None if pts is beyond the end of the video.
+    pub fn decode_frame(&mut self, pts: &TimeStamp) -> Result<Option<VideoFrame>, IOError> {
+        // Seek to nearest keyframe at or before target
+        self.ictx
+            .seek(pts.value, ..pts.value)
+            .map_err(|_| IOError::FFmpegError)?;
+
+        // Flush stale decoder state from before the seek
+        self.decoder.flush();
+
+        // Decode forward until pts matches
+        loop {
+            match self.decode_next()? {
+                None => return Ok(None),
+                Some(vf) => {
+                    if vf.pts.value >= pts.value {
+                        return Ok(Some(vf));
+                    }
+                    // before target — discard and keep going
+                }
             }
         }
     }
-    writer
-        .finalize(fps_num, fps_den)
-        .map_err(|_| IOError::EncodingFailed)?;
-    Ok(())
+
+    /// Decode and return the single next frame from the current position.
+    /// This is the raw linear decode — decode_frame builds on top of it.
+    pub fn decode_next(&mut self) -> Result<Option<VideoFrame>, IOError> {
+        let mut ff_frame = ffmpeg::util::frame::Video::empty();
+
+        loop {
+            match self.decoder.receive_frame(&mut ff_frame) {
+                Ok(()) => return Ok(Some(self.convert(&ff_frame)?)),
+
+                Err(e)
+                    if e == ffmpeg::Error::Other {
+                        errno: ffmpeg::error::EAGAIN,
+                    } =>
+                {
+                    if !self.feed_packet()? {
+                        self.decoder.send_eof().map_err(|_| IOError::FFmpegError)?;
+                        return match self.decoder.receive_frame(&mut ff_frame) {
+                            Ok(()) => Ok(Some(self.convert(&ff_frame)?)),
+                            Err(_) => Ok(None),
+                        };
+                    }
+                }
+
+                Err(_) => return Ok(None),
+            }
+        }
+    }
+
+    fn feed_packet(&mut self) -> Result<bool, IOError> {
+        for (stream, packet) in self.ictx.packets() {
+            if stream.index() == self.video_index {
+                self.decoder
+                    .send_packet(&packet)
+                    .map_err(|_| IOError::FFmpegError)?;
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn convert(&self, src: &ffmpeg::util::frame::Video) -> Result<VideoFrame, IOError> {
+        let width = src.width();
+        let height = src.height();
+
+        let mut scaler = Context::get(
+            src.format(),
+            width,
+            height,
+            Pixel::RGBA,
+            width,
+            height,
+            Flags::BILINEAR,
+        )
+        .map_err(|_| IOError::FFmpegError)?;
+
+        let mut rgba_frame = ffmpeg::util::frame::Video::new(Pixel::RGBA, width, height);
+        scaler
+            .run(src, &mut rgba_frame)
+            .map_err(|_| IOError::FFmpegError)?;
+
+        let stride = rgba_frame.stride(0);
+        let row_bytes = width as usize * 4;
+        let data = rgba_frame.data(0);
+
+        // Strip stride padding — build one flat interleaved RGBA vec
+        let mut interleaved = Vec::with_capacity(width as usize * height as usize * 4);
+        for row in 0..height as usize {
+            let start = row * stride;
+            interleaved.extend_from_slice(&data[start..start + row_bytes]);
+        }
+
+        // Split interleaved RGBA into your planar format
+        let pixel_count = (width * height) as usize;
+        let mut r = Vec::with_capacity(pixel_count);
+        let mut g = Vec::with_capacity(pixel_count);
+        let mut b = Vec::with_capacity(pixel_count);
+        let mut a = Vec::with_capacity(pixel_count);
+
+        for px in interleaved.chunks_exact(4) {
+            r.push(px[0]);
+            g.push(px[1]);
+            b.push(px[2]);
+            a.push(px[3]);
+        }
+
+        let frame = Frame::new(width, height, PixelData::RGBA(r, g, b, a))
+            .map_err(|_| IOError::InvalidData)?;
+
+        let pts = TimeStamp {
+            value: src.pts().unwrap_or(src.timestamp().unwrap_or(0)),
+            num: self.time_base.numerator() as u32,
+            den: self.time_base.denominator() as u32,
+        };
+
+        Ok(VideoFrame { frame, pts })
+    }
+
+    /// Decode the entire audio track from this video file using FFmpeg.
+    /// Use this instead of decode_audio() for audio embedded in video containers.
+    pub fn decode_audio(&mut self) -> Result<Track, IOError> {
+        let stream = self
+            .ictx
+            .streams()
+            .best(ffmpeg::media::Type::Audio)
+            .ok_or(IOError::FFmpegError)?;
+
+        let audio_index = stream.index();
+        let audio_tb = stream.time_base();
+
+        let mut audio_decoder =
+            ffmpeg::codec::context::Context::from_parameters(stream.parameters())
+                .map_err(|_| IOError::FFmpegError)?
+                .decoder()
+                .audio()
+                .map_err(|_| IOError::FFmpegError)?;
+
+        let sample_rate = audio_decoder.rate();
+        let mut buffer: Vec<AudioFrame> = Vec::new();
+        let mut decoded = ffmpeg::util::frame::Audio::empty();
+
+        for (stream, packet) in self.ictx.packets() {
+            if stream.index() != audio_index {
+                continue;
+            }
+            audio_decoder
+                .send_packet(&packet)
+                .map_err(|_| IOError::FFmpegError)?;
+
+            loop {
+                match audio_decoder.receive_frame(&mut decoded) {
+                    Ok(()) => {
+                        let pts_val = decoded.pts().unwrap_or(0);
+                        let ts = TimeStamp {
+                            value: pts_val,
+                            num: audio_tb.numerator() as u32,
+                            den: audio_tb.denominator() as u32,
+                        };
+                        let n_ch = decoded.channels() as usize;
+                        let data: Vec<Vec<f32>> = (0..n_ch)
+                            .map(|ch| decoded.plane::<f32>(ch).to_vec())
+                            .collect();
+                        buffer.push(AudioFrame { time: ts, data });
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+
+        // flush
+        audio_decoder.send_eof().map_err(|_| IOError::FFmpegError)?;
+        loop {
+            match audio_decoder.receive_frame(&mut decoded) {
+                Ok(()) => {
+                    let pts_val = decoded.pts().unwrap_or(0);
+                    let ts = TimeStamp {
+                        value: pts_val,
+                        num: audio_tb.numerator() as u32,
+                        den: audio_tb.denominator() as u32,
+                    };
+                    let n_ch = decoded.channels() as usize;
+                    let data: Vec<Vec<f32>> = (0..n_ch)
+                        .map(|ch| decoded.plane::<f32>(ch).to_vec())
+                        .collect();
+                    buffer.push(AudioFrame { time: ts, data });
+                }
+                Err(_) => break,
+            }
+        }
+
+        let channels = buffer.first().map_or(0, |f| f.data.len()) as u16;
+        Ok(Track::new(sample_rate, channels, buffer))
+    }
+
+    pub fn time_base(&self) -> ffmpeg::Rational {
+        self.time_base
+    }
+    pub fn width(&self) -> u32 {
+        self.decoder.width()
+    }
+    pub fn height(&self) -> u32 {
+        self.decoder.height()
+    }
+}
+
+// ─── VideoEncoder ─────────────────────────────────────────────────────────────
+
+pub struct VideoEncoder {
+    octx: ffmpeg::format::context::Output,
+    encoder: ffmpeg::encoder::Video,
+    stream_idx: usize,
+    frame_rate: ffmpeg::Rational,
+}
+
+impl VideoEncoder {
+    pub fn open(
+        path: &str,
+        width: u32,
+        height: u32,
+        time_base: ffmpeg::Rational,
+        frame_rate: ffmpeg::Rational,
+    ) -> Result<Self, IOError> {
+        let mut octx = ffmpeg::format::output(&path).map_err(|_| IOError::FFmpegError)?;
+
+        let global_header = octx
+            .format()
+            .flags()
+            .contains(ffmpeg::format::flag::Flags::GLOBAL_HEADER);
+
+        let codec = ffmpeg::encoder::find(ffmpeg::codec::Id::H264).ok_or(IOError::FFmpegError)?;
+
+        let mut enc_ctx = ffmpeg::codec::context::Context::new_with_codec(codec)
+            .encoder()
+            .video()
+            .map_err(|_| IOError::FFmpegError)?;
+
+        // encoder time_base = 1/framerate so pts = frame index maps cleanly
+        // e.g. frame_rate = 30/1, enc time_base = 1/30
+        // pts=0 → 0s, pts=1 → 1/30s, pts=2 → 2/30s
+        let enc_time_base = ffmpeg::Rational::new(frame_rate.denominator(), frame_rate.numerator());
+
+        enc_ctx.set_width(width);
+        enc_ctx.set_height(height);
+        enc_ctx.set_format(Pixel::YUV420P);
+        enc_ctx.set_time_base(enc_time_base);
+        enc_ctx.set_frame_rate(Some(frame_rate));
+
+        if global_header {
+            enc_ctx.set_flags(ffmpeg::codec::flag::Flags::GLOBAL_HEADER);
+        }
+
+        let encoder = enc_ctx.open_as(codec).map_err(|_| IOError::FFmpegError)?;
+
+        let mut stream = octx.add_stream(codec).map_err(|_| IOError::FFmpegError)?;
+        let stream_idx = stream.index();
+        stream.set_parameters(&encoder);
+        octx.write_header().map_err(|_| IOError::FFmpegError)?;
+
+        let scaler = Context::get(
+            Pixel::RGBA,
+            width,
+            height,
+            Pixel::YUV420P,
+            width,
+            height,
+            Flags::BILINEAR,
+        )
+        .map_err(|_| IOError::FFmpegError)?;
+
+        Ok(Self {
+            octx,
+            encoder,
+            stream_idx,
+            frame_rate,
+        })
+    }
+
+    pub fn encode_frame(&mut self, vf: &VideoFrame, index: i64) -> Result<(), IOError> {
+        let width = vf.frame.width() as usize;
+        let height = vf.frame.height() as usize;
+
+        let mut yuv_ff =
+            ffmpeg::util::frame::Video::new(Pixel::YUV420P, width as u32, height as u32);
+
+        let (r, g, b) = match vf.frame.data() {
+            PixelData::RGBA(r, g, b, _) => (r, g, b),
+            _ => return Err(IOError::InvalidData),
+        };
+
+        let y_stride = yuv_ff.stride(0);
+        let u_stride = yuv_ff.stride(1);
+        let v_stride = yuv_ff.stride(2);
+
+        // Y plane — one value per pixel
+        {
+            let dst_y = yuv_ff.data_mut(0);
+            for row in 0..height {
+                for col in 0..width {
+                    let src = row * width + col;
+                    let y = (0.299 * r[src] as f32 + 0.587 * g[src] as f32 + 0.114 * b[src] as f32)
+                        .clamp(0.0, 255.0) as u8;
+                    dst_y[row * y_stride + col] = y;
+                }
+            }
+        }
+
+        // U plane — one value per 2x2 block
+        {
+            let dst_u = yuv_ff.data_mut(1);
+            for row in (0..height).step_by(2) {
+                for col in (0..width).step_by(2) {
+                    let mut u_sum = 0.0f32;
+                    for dy in 0..2 {
+                        for dx in 0..2 {
+                            let src = (row + dy) * width + (col + dx);
+                            u_sum += -0.169 * r[src] as f32 - 0.331 * g[src] as f32
+                                + 0.500 * b[src] as f32
+                                + 128.0;
+                        }
+                    }
+                    dst_u[(row / 2) * u_stride + (col / 2)] =
+                        (u_sum * 0.25).clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+
+        // V plane — one value per 2x2 block
+        {
+            let dst_v = yuv_ff.data_mut(2);
+            for row in (0..height).step_by(2) {
+                for col in (0..width).step_by(2) {
+                    let mut v_sum = 0.0f32;
+                    for dy in 0..2 {
+                        for dx in 0..2 {
+                            let src = (row + dy) * width + (col + dx);
+                            v_sum += 0.500 * r[src] as f32
+                                - 0.419 * g[src] as f32
+                                - 0.081 * b[src] as f32
+                                + 128.0;
+                        }
+                    }
+                    dst_v[(row / 2) * v_stride + (col / 2)] =
+                        (v_sum * 0.25).clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+
+        yuv_ff.set_pts(Some(index));
+        self.encoder
+            .send_frame(&yuv_ff)
+            .map_err(|_| IOError::FFmpegError)?;
+        self.drain_packets()
+    }
+    pub fn finish(&mut self) -> Result<(), IOError> {
+        self.encoder.send_eof().map_err(|_| IOError::FFmpegError)?;
+        self.drain_packets()?;
+        self.octx
+            .write_trailer()
+            .map_err(|_| IOError::FFmpegError)?;
+        Ok(())
+    }
+
+    fn drain_packets(&mut self) -> Result<(), IOError> {
+        let mut pkt = ffmpeg::codec::packet::Packet::empty();
+        // enc time_base = 1/framerate
+        let enc_tb =
+            ffmpeg::Rational::new(self.frame_rate.denominator(), self.frame_rate.numerator());
+        loop {
+            match self.encoder.receive_packet(&mut pkt) {
+                Ok(()) => {
+                    pkt.set_stream(self.stream_idx);
+                    pkt.rescale_ts(
+                        enc_tb,
+                        self.octx.stream(self.stream_idx).unwrap().time_base(),
+                    );
+                    pkt.write_interleaved(&mut self.octx)
+                        .map_err(|_| IOError::FFmpegError)?;
+                }
+                Err(_) => break,
+            }
+        }
+        Ok(())
+    }
 }
 
 // Audio Handling
+
+#[derive(Debug)]
+pub enum AudioDecodeError {
+    Io(std::io::Error),
+    NoAudioTrack,
+    UnsupportedFormat,
+    Symphonia(SymphoniaError),
+}
+
+impl From<std::io::Error> for AudioDecodeError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+impl From<SymphoniaError> for AudioDecodeError {
+    fn from(e: SymphoniaError) -> Self {
+        Self::Symphonia(e)
+    }
+}
+
+pub fn decode_audio(path: &Path) -> Result<Track, AudioDecodeError> {
+    // ── open file & probe format ─────────────────────────────────────────────
+    let file = File::open(path)?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+
+    let probed = default::get_probe().format(
+        &hint,
+        mss,
+        &FormatOptions::default(),
+        &MetadataOptions::default(),
+    )?;
+
+    let mut format = probed.format;
+
+    let track = format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
+        .ok_or(AudioDecodeError::NoAudioTrack)?;
+
+    let track_id = track.id;
+    let codec_params = track.codec_params.clone();
+    let sample_rate = codec_params.sample_rate.unwrap_or(44100);
+    let tb_num = codec_params.time_base.map_or(1, |tb| tb.numer);
+    let tb_den = codec_params.time_base.map_or(1, |tb| tb.denom);
+
+    let mut decoder = default::get_codecs()
+        .make(&codec_params, &DecoderOptions::default())
+        .map_err(|_| AudioDecodeError::UnsupportedFormat)?;
+
+    let mut frames: Vec<AudioFrame> = Vec::new();
+
+    loop {
+        let packet = match format.next_packet() {
+            Ok(p) => p,
+            Err(SymphoniaError::IoError(_)) | Err(SymphoniaError::ResetRequired) => break,
+            Err(e) => return Err(AudioDecodeError::Symphonia(e)),
+        };
+
+        if packet.track_id() != track_id {
+            continue;
+        }
+
+        let decoded = match decoder.decode(&packet) {
+            Ok(buf) => buf,
+            Err(SymphoniaError::DecodeError(_)) => continue, // skip broken packets
+            Err(e) => return Err(AudioDecodeError::Symphonia(e)),
+        };
+
+        // Timestamp for this packet using the stream's timebase
+        let ts = TimeStamp {
+            value: packet.ts() as i64,
+            num: tb_num,
+            den: tb_den,
+        };
+
+        let channel_data = extract_planar_f32(&decoded);
+
+        frames.push(AudioFrame {
+            time: ts,
+            data: channel_data,
+        });
+    }
+
+    let channels = frames.first().map_or(0, |f| f.data.len()) as u16;
+
+    Ok(Track::new(sample_rate, channels, frames))
+}
+
+fn extract_planar_f32(buf: &AudioBufferRef<'_>) -> Vec<Vec<f32>> {
+    use symphonia::core::audio::SampleBuffer;
+
+    if let AudioBufferRef::F32(b) = buf {
+        let planes = b.planes();
+        return planes.planes().iter().map(|ch| ch.to_vec()).collect();
+    }
+
+    let frames = buf.frames();
+    let spec = *buf.spec();
+    let n_ch = spec.channels.count();
+
+    let mut sample_buf = SampleBuffer::<f32>::new(frames as u64, spec);
+    sample_buf.copy_planar_ref(buf.clone());
+    let flat = sample_buf.samples();
+
+    flat.chunks(frames)
+        .map(|ch| ch.to_vec())
+        .collect::<Vec<_>>()
+        .into_iter()
+        .take(n_ch)
+        .collect()
+}
+// src/media/audio/encoder.rs
+
+#[derive(Debug)]
+pub enum WavEncodeError {
+    Io(std::io::Error),
+    Hound(hound::Error),
+    EmptyTrack,
+}
+
+impl From<std::io::Error> for WavEncodeError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+impl From<hound::Error> for WavEncodeError {
+    fn from(e: hound::Error) -> Self {
+        Self::Hound(e)
+    }
+}
+
+pub fn encode_wav(track: &Track, path: &Path) -> Result<(), WavEncodeError> {
+    if track.buffer().is_empty() {
+        return Err(WavEncodeError::EmptyTrack);
+    }
+
+    let spec = WavSpec {
+        channels: track.channels(),
+        sample_rate: track.sample_rate(),
+        bits_per_sample: 32,
+        sample_format: SampleFormat::Float,
+    };
+
+    let mut writer = WavWriter::create(path, spec)?;
+
+    for frame in track.buffer() {
+        // Determine how many samples are in each channel for this frame.
+        let n_samples = frame.data.first().map_or(0, |ch| ch.len());
+
+        // Interleave: emit one sample per channel before advancing to next sample.
+        for i in 0..n_samples {
+            for channel in &frame.data {
+                // Guard against ragged channels — pad with silence rather than panic.
+                let sample = channel.get(i).copied().unwrap_or(0.0);
+                writer.write_sample(sample)?;
+            }
+        }
+    }
+
+    writer.finalize()?;
+    Ok(())
+}
+
+pub fn encode_wav_i16(track: &Track, path: &Path) -> Result<(), WavEncodeError> {
+    if track.buffer().is_empty() {
+        return Err(WavEncodeError::EmptyTrack);
+    }
+
+    let spec = WavSpec {
+        channels: track.channels(),
+        sample_rate: track.sample_rate(),
+        bits_per_sample: 16,
+        sample_format: SampleFormat::Int,
+    };
+
+    let mut writer = WavWriter::create(path, spec)?;
+
+    for frame in track.buffer() {
+        let n_samples = frame.data.first().map_or(0, |ch| ch.len());
+        for i in 0..n_samples {
+            for channel in &frame.data {
+                let s = channel.get(i).copied().unwrap_or(0.0);
+                let pcm = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+                writer.write_sample(pcm)?;
+            }
+        }
+    }
+
+    writer.finalize()?;
+    Ok(())
+}

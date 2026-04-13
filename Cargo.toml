@@ -7,7 +7,8 @@ edition = "2024"
 ffmpeg-next = "8.1.0"
 fontdue = "0.9.3"
 image = "0.25.10"
-reel = {path = "../reel"}
-symphonia = "0.5.5"
+
+symphonia = { version = "0.5", features = ["all"] }
+hound = "3.5"
 
 #

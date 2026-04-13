@@ -1,5 +1,7 @@
 use std::fmt;
 
+use std::cmp::max;
+
 // CONFIGS
 
 #[derive(Debug, Clone, Copy)]
@@ -166,6 +168,7 @@ pub enum FrameError {
     InvalidOpacityValue,
     EmptyFrame,
     YUVNotApplied,
+    BlendingFailed,
 }
 impl fmt::Display for FrameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -194,7 +197,81 @@ impl fmt::Display for FrameError {
             FrameError::YUVNotApplied => {
                 write!(f, "YUV Format is Not Implemented for this function.")
             }
+            FrameError::BlendingFailed => {
+                write!(f, "The two frames are not compatible!")
+            }
         }
+    }
+}
+
+fn pad_to(frame: &Frame, target_w: usize, target_h: usize) -> Result<Frame, FrameError> {
+    let offset_x = (target_w as u32 - frame.width) / 2;
+    let offset_y = (target_h as u32 - frame.height) / 2;
+
+    match &frame.data {
+        PixelData::GRAY(v) => {
+            let mut out = vec![0u8; target_w * target_h];
+
+            for y in 0..frame.height {
+                for x in 0..frame.width {
+                    let src_idx = (y * frame.width + x) as usize;
+                    let dst_idx = (y + offset_y) as usize * target_w + (x + offset_x) as usize;
+                    out[dst_idx] = v[src_idx];
+                }
+            }
+
+            Frame::new(target_w as u32, target_h as u32, PixelData::GRAY(out))
+        }
+
+        PixelData::RGB(r, g, b) => {
+            let mut r_out = vec![0u8; target_w * target_h];
+            let mut g_out = vec![0u8; target_w * target_h];
+            let mut b_out = vec![0u8; target_w * target_h];
+
+            for y in 0..frame.height {
+                for x in 0..frame.width {
+                    let src = (y * frame.width + x) as usize;
+                    let dst = (y + offset_y) as usize * target_w + (x + offset_x) as usize;
+
+                    r_out[dst] = r[src];
+                    g_out[dst] = g[src];
+                    b_out[dst] = b[src];
+                }
+            }
+
+            Frame::new(
+                target_w as u32,
+                target_h as u32,
+                PixelData::RGB(r_out, g_out, b_out),
+            )
+        }
+
+        PixelData::RGBA(r, g, b, a) => {
+            let mut r_out = vec![0u8; target_w * target_h];
+            let mut g_out = vec![0u8; target_w * target_h];
+            let mut b_out = vec![0u8; target_w * target_h];
+            let mut a_out = vec![0u8; target_w * target_h];
+
+            for y in 0..frame.height {
+                for x in 0..frame.width {
+                    let src = (y * frame.width + x) as usize;
+                    let dst = (y + offset_y) as usize * target_w + (x + offset_x) as usize;
+
+                    r_out[dst] = r[src];
+                    g_out[dst] = g[src];
+                    b_out[dst] = b[src];
+                    a_out[dst] = a[src];
+                }
+            }
+
+            Frame::new(
+                target_w as u32,
+                target_h as u32,
+                PixelData::RGBA(r_out, g_out, b_out, a_out),
+            )
+        }
+
+        _ => Err(FrameError::YUVNotApplied),
     }
 }
 
@@ -368,4 +445,78 @@ impl Frame {
         }
         Ok(())
     }
+    pub fn blend(&self, frame: Frame, alpha: f32) -> Result<Frame, FrameError> {
+        let mut data = self.data.clone();
+        let data2 = frame.data;
+
+        let alpha = alpha.clamp(0.0, 1.0);
+
+        if std::mem::discriminant(&data) != std::mem::discriminant(&data2) {
+            return Err(FrameError::BlendingFailed);
+        }
+
+        if self.width.abs_diff(frame.width) != 0 || self.height.abs_diff(frame.height) != 0 {
+            return Err(FrameError::BlendingFailed);
+        }
+
+        match data {
+            PixelData::GRAY(ref mut v) => {
+                let v2 = match data2 {
+                    PixelData::GRAY(v2) => v2,
+                    _ => return Err(FrameError::BlendingFailed),
+                };
+
+                for (p, p2) in v.iter_mut().zip(v2.iter()) {
+                    *p = (*p as f32 * (1.0 - alpha) + *p2 as f32 * alpha) as u8;
+                }
+            }
+
+            PixelData::RGB(ref mut r, ref mut g, ref mut b) => {
+                let (r1, g1, b1) = match data2 {
+                    PixelData::RGB(r1, g1, b1) => (r1, g1, b1),
+                    _ => return Err(FrameError::BlendingFailed),
+                };
+
+                for i in 0..r.len() {
+                    r[i] = (r[i] as f32 * (1.0 - alpha) + r1[i] as f32 * alpha) as u8;
+                    g[i] = (g[i] as f32 * (1.0 - alpha) + g1[i] as f32 * alpha) as u8;
+                    b[i] = (b[i] as f32 * (1.0 - alpha) + b1[i] as f32 * alpha) as u8;
+                }
+            }
+
+            PixelData::RGBA(ref mut r, ref mut g, ref mut b, ref mut a) => {
+                let (r1, g1, b1, a1) = match data2 {
+                    PixelData::RGBA(r1, g1, b1, a1) => (r1, g1, b1, a1),
+                    _ => return Err(FrameError::BlendingFailed),
+                };
+
+                for i in 0..r.len() {
+                    r[i] = (r[i] as f32 * (1.0 - alpha) + r1[i] as f32 * alpha) as u8;
+                    g[i] = (g[i] as f32 * (1.0 - alpha) + g1[i] as f32 * alpha) as u8;
+                    b[i] = (b[i] as f32 * (1.0 - alpha) + b1[i] as f32 * alpha) as u8;
+                    a[i] = (a[i] as f32 * (1.0 - alpha) + a1[i] as f32 * alpha) as u8;
+                }
+            }
+
+            _ => return Err(FrameError::YUVNotApplied),
+        }
+
+        Frame::new(self.width, self.height, data)
+    }
+
+    pub fn normalize(a: &Frame, b: &Frame) -> Result<(Frame, Frame), FrameError> {
+        if std::mem::discriminant(&a.data) != std::mem::discriminant(&b.data) {
+            return Err(FrameError::BlendingFailed);
+        }
+
+        let target_w = max(a.width, b.width);
+        let target_h = max(a.height, b.height);
+
+        let a_norm = pad_to(a, target_w as usize, target_h as usize)?;
+        let b_norm = pad_to(b, target_w as usize, target_h as usize)?;
+
+        Ok((a_norm, b_norm))
+    }
 }
+
+impl Frame {}
