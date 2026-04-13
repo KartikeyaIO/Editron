@@ -123,25 +123,38 @@ impl PixelData {
                 if width % 2 != 0 || height % 2 != 0 {
                     return Err(FrameError::InvalidFrameSize);
                 }
+
                 let mut r = Vec::with_capacity((width * height) as usize);
                 let mut g = Vec::with_capacity((width * height) as usize);
                 let mut b = Vec::with_capacity((width * height) as usize);
                 let a = vec![255u8; (width * height) as usize];
+
                 for y in 0..height {
                     for x in 0..width {
                         let yidx = (y * width + x) as usize;
                         let uvidx = ((y / 2) * (width / 2) + (x / 2)) as usize;
-                        let y_val = y_plane[yidx] as f32;
-                        let u_val = u_plane[uvidx] as f32 - 128.0;
-                        let v_val = v_plane[uvidx] as f32 - 128.0;
-                        let rval = (y_val + 1.402 * v_val).clamp(0.0, 255.0) as u8;
-                        let gval = (y_val - 0.344 * u_val - 0.714 * v_val).clamp(0.0, 255.0) as u8;
-                        let bval = (y_val + 1.772 * u_val).clamp(0.0, 255.0) as u8;
-                        r.push(rval);
-                        g.push(gval);
-                        b.push(bval);
+
+                        // ---- fetch values ----
+                        let y_raw = y_plane[yidx] as i32;
+                        let u_raw = u_plane[uvidx] as i32;
+                        let v_raw = v_plane[uvidx] as i32;
+
+                        // ---- convert limited range → full ----
+                        let c = (y_raw - 16).max(0);
+                        let d = u_raw - 128;
+                        let e = v_raw - 128;
+
+                        // ---- integer BT.601 ----
+                        let r_val = (298 * c + 409 * e + 128) >> 8;
+                        let g_val = (298 * c - 100 * d - 208 * e + 128) >> 8;
+                        let b_val = (298 * c + 516 * d + 128) >> 8;
+
+                        r.push(r_val.clamp(0, 255) as u8);
+                        g.push(g_val.clamp(0, 255) as u8);
+                        b.push(b_val.clamp(0, 255) as u8);
                     }
                 }
+
                 Ok(PixelData::RGBA(r, g, b, a))
             }
             PixelData::RGBA(r, g, b, a) => {

@@ -1,5 +1,9 @@
-use editron_v1::io::{Video, VideoEncoder, encode_image};
-use editron_v1::media::video::TimeStamp;
+use editron_v1::{
+    filter::Filter,
+    filters::gaussian_blur,
+    io::{Video, VideoEncoder, encode_image},
+};
+
 use std::time::Instant;
 
 fn main() {
@@ -31,9 +35,11 @@ fn main() {
         match video.decode_next() {
             Ok(Some(mut vf)) => {
                 vf.frame.brightness(80);
-                if frame_idx == 150 {
-                    encode_image(&vf.frame, "Outputs/output.png").expect("Encoding Image Failed!");
-                }
+                vf.frame.contrast().expect("Contrast Increase failed!");
+                //let blur = gaussian_blur::GaussianBlur::new(3.0);
+                // if frame_idx % 2 == 0 {
+                //     vf.frame = blur.apply(vf.frame);
+                // }
 
                 encoder.encode_frame(&vf, frame_idx).expect("encode failed");
                 frame_count += 1;

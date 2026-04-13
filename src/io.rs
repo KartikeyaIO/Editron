@@ -447,6 +447,7 @@ pub struct VideoEncoder {
     encoder: ffmpeg::encoder::Video,
     stream_idx: usize,
     frame_rate: ffmpeg::Rational,
+    scaler: Context,
 }
 
 impl VideoEncoder {
@@ -481,7 +482,7 @@ impl VideoEncoder {
         enc_ctx.set_format(Pixel::YUV420P);
         enc_ctx.set_time_base(enc_time_base);
         enc_ctx.set_frame_rate(Some(frame_rate));
-
+        enc_ctx.set_bit_rate(4_000_000);
         if global_header {
             enc_ctx.set_flags(ffmpeg::codec::flag::Flags::GLOBAL_HEADER);
         }
@@ -509,83 +510,66 @@ impl VideoEncoder {
             encoder,
             stream_idx,
             frame_rate,
+            scaler,
         })
     }
 
     pub fn encode_frame(&mut self, vf: &VideoFrame, index: i64) -> Result<(), IOError> {
-        let width = vf.frame.width() as usize;
-        let height = vf.frame.height() as usize;
+        let width = vf.frame.width();
+        let height = vf.frame.height();
 
-        let mut yuv_ff =
-            ffmpeg::util::frame::Video::new(Pixel::YUV420P, width as u32, height as u32);
+        if width % 2 != 0 || height % 2 != 0 {
+            return Err(IOError::InvalidData);
+        }
 
         let (r, g, b) = match vf.frame.data() {
             PixelData::RGBA(r, g, b, _) => (r, g, b),
             _ => return Err(IOError::InvalidData),
         };
 
-        let y_stride = yuv_ff.stride(0);
-        let u_stride = yuv_ff.stride(1);
-        let v_stride = yuv_ff.stride(2);
+        let pixel_count = (width * height) as usize;
+        if r.len() != pixel_count || g.len() != pixel_count || b.len() != pixel_count {
+            return Err(IOError::InvalidData);
+        }
 
-        // Y plane — one value per pixel
-        {
-            let dst_y = yuv_ff.data_mut(0);
-            for row in 0..height {
-                for col in 0..width {
-                    let src = row * width + col;
-                    let y = (0.299 * r[src] as f32 + 0.587 * g[src] as f32 + 0.114 * b[src] as f32)
-                        .clamp(0.0, 255.0) as u8;
-                    dst_y[row * y_stride + col] = y;
-                }
+        // RGBA frame
+        let mut src = ffmpeg::util::frame::Video::new(Pixel::RGBA, width, height);
+
+        let stride = src.stride(0);
+        let data = src.data_mut(0);
+
+        let mut i = 0usize;
+
+        for row in 0..height as usize {
+            let row_start = row * stride;
+
+            for col in 0..width as usize {
+                let idx = row_start + col * 4;
+
+                data[idx] = r[i];
+                data[idx + 1] = g[i];
+                data[idx + 2] = b[i];
+                data[idx + 3] = 255;
+
+                i += 1;
             }
         }
 
-        // U plane — one value per 2x2 block
-        {
-            let dst_u = yuv_ff.data_mut(1);
-            for row in (0..height).step_by(2) {
-                for col in (0..width).step_by(2) {
-                    let mut u_sum = 0.0f32;
-                    for dy in 0..2 {
-                        for dx in 0..2 {
-                            let src = (row + dy) * width + (col + dx);
-                            u_sum += -0.169 * r[src] as f32 - 0.331 * g[src] as f32
-                                + 0.500 * b[src] as f32
-                                + 128.0;
-                        }
-                    }
-                    dst_u[(row / 2) * u_stride + (col / 2)] =
-                        (u_sum * 0.25).clamp(0.0, 255.0) as u8;
-                }
-            }
-        }
+        // Convert
+        let mut yuv = ffmpeg::util::frame::Video::new(Pixel::YUV420P, width, height);
 
-        // V plane — one value per 2x2 block
-        {
-            let dst_v = yuv_ff.data_mut(2);
-            for row in (0..height).step_by(2) {
-                for col in (0..width).step_by(2) {
-                    let mut v_sum = 0.0f32;
-                    for dy in 0..2 {
-                        for dx in 0..2 {
-                            let src = (row + dy) * width + (col + dx);
-                            v_sum += 0.500 * r[src] as f32
-                                - 0.419 * g[src] as f32
-                                - 0.081 * b[src] as f32
-                                + 128.0;
-                        }
-                    }
-                    dst_v[(row / 2) * v_stride + (col / 2)] =
-                        (v_sum * 0.25).clamp(0.0, 255.0) as u8;
-                }
-            }
-        }
-
-        yuv_ff.set_pts(Some(index));
-        self.encoder
-            .send_frame(&yuv_ff)
+        self.scaler
+            .run(&src, &mut yuv)
             .map_err(|_| IOError::FFmpegError)?;
+
+        // PTS
+        yuv.set_pts(Some(index));
+
+        // Encode
+        self.encoder
+            .send_frame(&yuv)
+            .map_err(|_| IOError::FFmpegError)?;
+
         self.drain_packets()
     }
     pub fn finish(&mut self) -> Result<(), IOError> {
@@ -613,7 +597,10 @@ impl VideoEncoder {
                     pkt.write_interleaved(&mut self.octx)
                         .map_err(|_| IOError::FFmpegError)?;
                 }
-                Err(_) => break,
+                // Make sure to handle this error later, it causes frame drop when you reach EOF or something.
+                Err(_) => {
+                    break;
+                }
             }
         }
         Ok(())
@@ -642,7 +629,6 @@ impl From<SymphoniaError> for AudioDecodeError {
 }
 
 pub fn decode_audio(path: &Path) -> Result<Track, AudioDecodeError> {
-    // ── open file & probe format ─────────────────────────────────────────────
     let file = File::open(path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
