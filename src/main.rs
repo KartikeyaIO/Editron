@@ -1,15 +1,17 @@
 use editron_v1::{
     filter::Filter,
     filters::gaussian_blur,
-    io::{Video, VideoEncoder, encode_image},
+    io::{Video, VideoEncoder, encode_image, load_image},
+    media::frame::{Frame, Pos},
 };
 
 use std::time::Instant;
 
 fn main() {
     let start_time = Instant::now();
+    let mut frame1 = load_image("test_inputs/image.jpg", "rgba").expect("Image Loading Failed!");
 
-    let mut video = Video::open("test_inputs/input.mp4").expect("failed to open video");
+    let mut video = Video::open("test_inputs/input2.mp4").expect("failed to open video");
 
     let tb = video.time_base();
     let time_base_num = tb.numerator() as u32;
@@ -20,7 +22,7 @@ fn main() {
     println!("time_base: {}/{}", time_base_num, time_base_den);
 
     let mut encoder = VideoEncoder::open(
-        "Outputs/output.mp4",
+        "Outputs/output1.mp4",
         video.width(),
         video.height(),
         tb,
@@ -34,13 +36,18 @@ fn main() {
     loop {
         match video.decode_next() {
             Ok(Some(mut vf)) => {
-                vf.frame.brightness(80);
-                vf.frame.contrast().expect("Contrast Increase failed!");
-                //let blur = gaussian_blur::GaussianBlur::new(3.0);
-                // if frame_idx % 2 == 0 {
-                //     vf.frame = blur.apply(vf.frame);
-                // }
+                (frame1, vf.frame) =
+                    Frame::normalize(&frame1, &vf.frame).expect("Normalization Failed!");
 
+                vf.frame.blend(&frame1, 0.65).expect("Blending Failed");
+                for i in (0..vf.frame.width()).step_by(7) {
+                    for j in (0..vf.frame.height()).step_by(2) {
+                        vf.frame.brightness(&Pos(i, j), 80);
+                        vf.frame
+                            .contrast(&Pos(i, j), 2.5)
+                            .expect("Constrast Increase Failed!");
+                    }
+                }
                 encoder.encode_frame(&vf, frame_idx).expect("encode failed");
                 frame_count += 1;
                 frame_idx += 1;

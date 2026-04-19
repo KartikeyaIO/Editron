@@ -482,7 +482,7 @@ impl VideoEncoder {
         enc_ctx.set_format(Pixel::YUV420P);
         enc_ctx.set_time_base(enc_time_base);
         enc_ctx.set_frame_rate(Some(frame_rate));
-        enc_ctx.set_bit_rate(4_000_000);
+        enc_ctx.set_bit_rate(20_000_000);
         if global_header {
             enc_ctx.set_flags(ffmpeg::codec::flag::Flags::GLOBAL_HEADER);
         }

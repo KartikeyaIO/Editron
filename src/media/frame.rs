@@ -305,18 +305,32 @@ impl Frame {
             Err(FrameError::InvalidFrameSize)
         }
     }
-    /// The brightness function is used to adjust the brightness of a Frame
-    pub fn brightness(&mut self, delta: i16) {
+    /// The brightness function is used to adjust the brightness of a pixel
+    pub fn brightness(&mut self, pos: &Pos, delta: i16) -> bool {
         let clamp = |v: u8| (v as i16 + delta).clamp(0, 255) as u8;
+        let index = match self.pixel_index(pos) {
+            Ok(val) => val,
+            Err(_) => {
+                eprintln!("Invalid Pixel position");
+                return false;
+            }
+        };
 
         match &mut self.data {
             PixelData::RGB(r, g, b) | PixelData::RGBA(r, g, b, _) => {
-                r.iter_mut().for_each(|v| *v = clamp(*v));
-                g.iter_mut().for_each(|v| *v = clamp(*v));
-                b.iter_mut().for_each(|v| *v = clamp(*v));
+                r[index] = clamp(r[index]);
+                g[index] = clamp(g[index]);
+                b[index] = clamp(b[index]);
+                true
             }
-            PixelData::GRAY(l) => l.iter_mut().for_each(|v| *v = clamp(*v)),
-            PixelData::YUV420(y, _, _) => y.iter_mut().for_each(|v| *v = clamp(*v)),
+            PixelData::GRAY(l) => {
+                l[index] = clamp(l[index]);
+                true
+            }
+            PixelData::YUV420(y, _, _) => {
+                y[index] = clamp(y[index]);
+                true
+            }
         }
     }
 
@@ -419,48 +433,28 @@ impl Frame {
         }
         Ok(())
     }
-    pub fn contrast(&mut self) -> Result<(), FrameError> {
+    pub fn contrast(&mut self, pos: &Pos, factor: f32) -> Result<(), FrameError> {
+        let index = self.pixel_index(pos)?;
         let data = &mut self.data;
         match data {
             PixelData::GRAY(l) => {
-                let max = *l.iter().max().ok_or(FrameError::EmptyFrame)?;
-                let min = *l.iter().min().ok_or(FrameError::EmptyFrame)?;
-                let offset = max - min;
-                if offset == 0 {
-                    return Ok(());
-                }
-                l.iter_mut()
-                    .for_each(|v| *v = ((*v - min) as u16 * 255 / offset as u16) as u8);
+                l[index] = (128.0 + factor * (l[index] as f32 - 128.0)).clamp(0.0, 255.0) as u8;
             }
             PixelData::RGB(r, g, b) | PixelData::RGBA(r, g, b, _) => {
                 for channel in [r, g, b] {
-                    let max = *channel.iter().max().ok_or(FrameError::EmptyFrame)?;
-                    let min = *channel.iter().min().ok_or(FrameError::EmptyFrame)?;
-                    let offset = max - min;
-                    if offset == 0 {
-                        continue;
-                    }
-                    channel
-                        .iter_mut()
-                        .for_each(|v| *v = ((*v - min) as u16 * 255 / offset as u16) as u8);
+                    channel[index] =
+                        (128.0 + factor * (channel[index] as f32 - 128.0)).clamp(0.0, 255.0) as u8;
                 }
             }
             PixelData::YUV420(l, _, _) => {
-                let max = *l.iter().max().ok_or(FrameError::EmptyFrame)?;
-                let min = *l.iter().min().ok_or(FrameError::EmptyFrame)?;
-                let offset = max - min;
-                if offset == 0 {
-                    return Ok(());
-                }
-                l.iter_mut()
-                    .for_each(|v| *v = ((*v - min) as u16 * 255 / offset as u16) as u8);
+                l[index] = (128.0 + factor * (l[index] as f32 - 128.0)).clamp(0.0, 255.0) as u8;
             }
         }
         Ok(())
     }
-    pub fn blend(&self, frame: Frame, alpha: f32) -> Result<Frame, FrameError> {
+    pub fn blend(&self, frame: &Frame, alpha: f32) -> Result<Frame, FrameError> {
         let mut data = self.data.clone();
-        let data2 = frame.data;
+        let data2 = frame.data();
 
         let alpha = alpha.clamp(0.0, 1.0);
 
@@ -527,7 +521,6 @@ impl Frame {
 
         let a_norm = pad_to(a, target_w as usize, target_h as usize)?;
         let b_norm = pad_to(b, target_w as usize, target_h as usize)?;
-
         Ok((a_norm, b_norm))
     }
 }
