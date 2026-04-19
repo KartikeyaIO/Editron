@@ -403,13 +403,16 @@ impl Frame {
 
         Ok(())
     }
-    pub fn set_alpha(&mut self, value: u8) -> Result<(), FrameError> {
+    pub fn set_alpha(&mut self, pos: &Pos, value: u8) -> Result<(), FrameError> {
         if self.data.bytes_per_pixel() != 4 {
             return Err(FrameError::InvalidPixelFormat);
         }
+        let index = self.pixel_index(pos)?;
         let data = &mut self.data;
         match data {
-            PixelData::RGBA(_, _, _, a) => a.fill(value),
+            PixelData::RGBA(_, _, _, a) => {
+                a[index] = value;
+            }
             _ => return Err(FrameError::InvalidPixelFormat),
         }
         Ok(())
@@ -525,4 +528,30 @@ impl Frame {
     }
 }
 
-impl Frame {}
+impl Frame {
+    pub fn saturation(&mut self, pos: &Pos, s_value: f32) -> bool {
+        let index = match self.pixel_index(pos) {
+            Ok(val) => val,
+            Err(_) => {
+                eprintln!("Invalid Pixel Index!");
+                return false;
+            }
+        };
+
+        let data = &mut self.data;
+        match data {
+            PixelData::RGB(r, g, b) | PixelData::RGBA(r, g, b, _) => {
+                let y = 0.299 * r[index] as f32 + 0.587 * g[index] as f32 + 0.114 * b[index] as f32;
+
+                r[index] = (y + s_value * (r[index] as f32 - y).clamp(0.0, 255.0)) as u8;
+                g[index] = (y + s_value * (g[index] as f32 - y).clamp(0.0, 255.0)) as u8;
+                b[index] = (y + s_value * (b[index] as f32 - y).clamp(0.0, 255.0)) as u8;
+                true
+            }
+            _ => {
+                eprintln!("Saturation is only implemented for RGB or RGBA!");
+                return false;
+            }
+        }
+    }
+}
