@@ -417,20 +417,19 @@ impl Frame {
         }
         Ok(())
     }
-    pub fn opacity(&mut self, value: u8) -> Result<(), FrameError> {
+    pub fn opacity(&mut self, pos: &Pos, value: u8) -> Result<(), FrameError> {
         if self.data.bytes_per_pixel() != 4 {
             return Err(FrameError::InvalidPixelFormat);
         }
         if value > 100 {
             return Err(FrameError::InvalidOpacityValue);
         }
+        let index = self.pixel_index(pos)?;
         let data = &mut self.data;
 
         match data {
             PixelData::RGBA(_, _, _, a) => {
-                for i in a {
-                    *i = ((*i as u16 * value as u16) / 100) as u8;
-                }
+                a[index] = ((a[index] as u16 * value as u16) / 100) as u8;
             }
             _ => return Err(FrameError::InvalidPixelFormat),
         }
@@ -553,5 +552,67 @@ impl Frame {
                 return false;
             }
         }
+    }
+    pub fn blit(&mut self, pos: &Pos, frame: &Frame) -> Result<(), FrameError> {
+        let Pos(x, y) = *pos;
+
+        if x + frame.width > self.width || y + frame.height > self.height {
+            return Err(FrameError::BlitFailed);
+        }
+
+        let (r, g, b, a) = match &mut self.data {
+            PixelData::RGBA(r, g, b, a) => (r, g, b, a),
+            _ => return Err(FrameError::BlitFailed),
+        };
+
+        let (r2, g2, b2, a2) = match &frame.data {
+            PixelData::RGBA(r, g, b, a) => (r, g, b, a),
+            _ => return Err(FrameError::BlitFailed),
+        };
+
+        for row in 0..frame.height {
+            for col in 0..frame.width {
+                let dst_idx = ((y + row) * self.width + (x + col)) as usize;
+                let src_idx = (row * frame.width + col) as usize;
+
+                r[dst_idx] = r2[src_idx];
+                g[dst_idx] = g2[src_idx];
+                b[dst_idx] = b2[src_idx];
+                a[dst_idx] = a2[src_idx];
+            }
+        }
+
+        Ok(())
+    }
+    pub fn blend_on(&mut self, pos: &Pos, frame: &Frame, alpha: f32) -> Result<(), FrameError> {
+        let Pos(x, y) = *pos;
+
+        if x + frame.width > self.width || y + frame.height > self.height {
+            return Err(FrameError::BlitFailed);
+        }
+
+        let (r, g, b, a) = match &mut self.data {
+            PixelData::RGBA(r, g, b, a) => (r, g, b, a),
+            _ => return Err(FrameError::BlitFailed),
+        };
+
+        let (r2, g2, b2, a2) = match &frame.data {
+            PixelData::RGBA(r, g, b, a) => (r, g, b, a),
+            _ => return Err(FrameError::BlitFailed),
+        };
+
+        for row in 0..frame.height {
+            for col in 0..frame.width {
+                let j = ((y + row) * self.width + (x + col)) as usize;
+                let i = (row * frame.width + col) as usize;
+
+                r[j] = (r[j] as f32 * (1.0 - alpha) + r2[i] as f32 * alpha) as u8;
+                g[j] = (g[j] as f32 * (1.0 - alpha) + g2[i] as f32 * alpha) as u8;
+                b[j] = (b[j] as f32 * (1.0 - alpha) + b2[i] as f32 * alpha) as u8;
+                a[j] = (a[j] as f32 * (1.0 - alpha) + a2[i] as f32 * alpha) as u8;
+            }
+        }
+
+        Ok(())
     }
 }
