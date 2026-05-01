@@ -4,10 +4,10 @@ use editron_v1::{
 };
 
 fn main() {
-    let input_path = "test_inputs/image.jpg";
+    let input_path = "test_inputs/freshers2.jpeg";
     let output_path = "Outputs/output.png";
     let mut frame1 = load_image(input_path, "rgba").expect("Image Loading Failed!");
-    let mut frame2 = load_image("test_inputs/image3.jpg", "rgba").expect("Image Loading Failed!");
+
     for i in (0..frame1.width()).step_by(1) {
         for j in (0..frame1.height()).step_by(1) {
             frame1
@@ -18,8 +18,5 @@ fn main() {
         }
     }
 
-    frame1
-        .blend_on(&Pos(0, 0), &frame2, 0.50)
-        .expect("Blending Failed");
     encode_image(&frame1, output_path).expect("Encoding of the Image Failed!");
 }

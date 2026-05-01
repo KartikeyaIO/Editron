@@ -1,111 +1,185 @@
 # Lexer
 
-The lexer is implemented in Rust and is responsible for converting source code into a stream of tokens.  
-It is designed as an explicit **state machine**, which ensures correctness and clear token boundaries.
+The lexer is responsible for converting source code into a sequence of tokens.
+
+It is implemented as a deterministic state machine and produces a `Vec<Token>` that is consumed by the parser.
+
+---
+
+## Overview
+
+The lexer processes input as a byte stream and emits structured tokens representing identifiers, literals, and syntax elements.
+
+Each token contains:
+
+- `kind`: token category (`TokenKind`)
+- `value`: lexeme as a string
+- `line`: line number for error reporting
 
 ---
 
 ## Token Representation
 
-### `Token`
-Each token contains:
-- `kind`: the token type (`TokenKind`)
-- `value`: the lexeme as a string
-- `line`: line number for error reporting
+### Token
+```
+struct Token {
+kind: TokenKind,
+value: String,
+line: usize,
+}
+```
 
-### `TokenKind`
-Defines all supported token categories, including:
+### TokenKind
+
+Supported token categories include:
+
 - Identifiers
-- Keywords (`if`, `else`, `let`, `fn`, `return`, etc.)
-- Operators and punctuation
-- String literals
-- (Update) Addition of SemiColon, yeah I realised life is not that easy without them.
+- Keywords:
+  - `load`
+  - `filter`
+  - `export`
+  - `import`
+- Literals:
+  - Integer
+  - Float
+  - String
+- Symbols:
+  - Parentheses `(` `)`
+  - Braces `{` `}`
+  - Brackets `[` `]`
+  - Comma `,`
+  - Semicolon `;`
+  - Dot `.`
+  - Range operator `..`
+  - Assignment `=`
 - End-of-file marker (`EOF`)
 
 ---
 
 ## Lexer States
 
-The lexer operates using the following states:
+The lexer operates using an explicit state machine:
 
-- `Default` – normal scanning mode  
-- `Identifier` – reading identifiers or keywords  
-- `String` – reading string literals  
-- `Number` – reading Numeric Values
+- `Default`  
+  Handles whitespace, symbols, and transitions to other states
 
-This approach prevents premature token emission and keeps lexing logic deterministic.
+- `Identifier`  
+  Parses identifiers and keywords
+
+- `String`  
+  Parses string literals
+
+- `Number`  
+  Parses numeric values (integer and float)
+
+This design ensures controlled transitions and avoids ambiguous token emission.
+
+---
+
+## State Behavior
+
+### Default State
+
+- Skips whitespace (` `, `\t`, `\r`)
+- Tracks newlines for accurate line numbers
+- Emits single-character tokens via symbol mapping
+- Transitions to:
+  - `Identifier` when encountering alphabetic characters or `_`
+  - `Number` when encountering digits
+  - `String` when encountering `"`
+
+---
+
+### Identifier State
+
+- Consumes alphanumeric characters and `_`
+- Classifies the result as:
+  - Keyword (if reserved)
+  - Identifier (otherwise)
+- Returns to `Default` state without consuming the terminating character
+
+---
+
+### String State
+
+- Accumulates characters until a closing `"`
+- Supports multiline strings (tracks line numbers)
+- Emits a `String` token on completion
+- Produces an error if the string is not terminated
+
+---
+
+### Number State
+
+- Parses integer and floating-point values
+- Detects floats based on presence of `.`
+- Handles negative numbers (`-`) only when followed by digits
+- Differentiates between:
+  - Float literals
+  - Range operator (`..`)
+
+Invalid numeric formats produce an error.
 
 ---
 
 ## Helper Functions
 
-### `char_to_token()`
-Maps single-character symbols (parentheses, braces, operators) to their corresponding `TokenKind`.
+### char_to_token()
 
-### `identify_token()`
-Classifies a completed word:
-- Returns a keyword token if the word matches a reserved keyword
-- Otherwise returns `Identifier`
+Maps single-character symbols to their corresponding token types.
 
----
+### identify_token()
 
-## `lexer()` Function
-
-The `lexer()` function performs the full tokenization process.
-
-### Initialization
-- Reads the source file (`.edt`)
-- Converts the source into a byte array for indexed access
-- Initializes:
-  - cursor index
-  - line counter
-  - current lexer state
-  - temporary buffer for words and strings
+Determines whether a parsed identifier is a keyword or a user-defined identifier.
 
 ---
 
-### State Handling
+## Error Handling
 
-#### Default State
-- Skips whitespace and tabs
-- Tracks newlines for accurate line numbers
-- Transitions to:
-  - `Identifier` state when encountering letters or `_`
-  - `String` state when encountering `"`
-- Emits single-character tokens via `char_to_token()`
+Errors are represented using `LexError`:
 
-#### Identifier State
-- Consumes alphanumeric characters and `_`
-- Emits either a keyword or identifier token upon termination
-- Returns to `Default` state without consuming the terminating character
+- `InvalidCharacter`
+- `UnterminatedString`
+- `InvalidNumber`
 
-#### String State
-- Accumulates characters until a closing `"`
-- Emits a `String` token
-- Tracks newlines inside strings
-- Returns to `Default` state
+Each error includes:
 
-#### Number State
-- The compiler enters the Number state when a numeric value is encountered
-- if checks whether the number contains a `.` or not and classifies the number as Int or Float
-- Returns the corresponding token or an Error based if the Number is Invalid 
----
-
-### End of Input
-After processing the entire source, an explicit `EOF` token is emitted.
+- Line number
+- Contextual message
 
 ---
 
-## Current Status
+## End of Input
 
-The lexer foundation is complete and structurally stable.
-Updates:  
-- Added Numeric values
-- Added Custom Errors
-
-Planned extensions:
-- Comments
-- Escaped characters in strings
-- Multi-character operators
+After processing all input, the lexer emits an explicit `EOF` token.
 
 ---
+
+## Current Capabilities
+
+- Deterministic tokenization via state machine
+- Support for identifiers, keywords, literals, and symbols
+- Line-aware error reporting
+- Basic numeric and string parsing
+- Range operator (`..`) handling
+
+---
+
+## Limitations
+
+- No support for comments
+- No escape sequences in strings
+- Limited operator set
+- No unicode handling beyond basic ASCII
+
+---
+
+## Summary
+
+The lexer provides:
+
+- A structured token stream for parsing
+- Deterministic behavior via explicit state transitions
+- Basic error handling for malformed input
+
+It serves as the first stage of the Editron DSL pipeline.

@@ -1,125 +1,157 @@
-## The Track Type
+# The Track Type
 
-`Track` is the core audio abstraction in Editron.  
-It represents a decoded PCM audio stream stored as normalized floating-point samples.
+The `Track` type represents decoded audio data in Editron.
 
-### Structure
-
-```rust
-#[derive(Debug, Clone)]
-pub struct Track {
-    sample_rate: u32,
-    channels: u16,
-    buffer: Vec<f32>,
-}
-```
-
-### Fields
-
-- **sample_rate (`u32`)**  
-  Number of samples per second (e.g., 44100, 48000).
-
-- **channels (`u16`)**  
-  Number of audio channels (e.g., 1 = mono, 2 = stereo).
-
-- **buffer (`Vec<f32>`)**  
-  Interleaved PCM samples stored as normalized floating-point values in the range `[-1.0, 1.0]`.
+It provides a structured abstraction over audio samples and supports basic operations such as gain, mixing, normalization, and format conversion.
 
 ---
 
-## Design Philosophy
+## Structure
 
-- Audio is internally stored as **`f32` normalized PCM**
+A `Track` consists of:
+
+- `sample_rate: u32`  
+  Number of samples per second (e.g., 44100, 48000)
+
+- `channels: u16`  
+  Number of audio channels (e.g., 1 for mono, 2 for stereo)
+
+- `buffer: Vec<AudioFrame>`  
+  A sequence of audio frames, each containing per-channel sample data
+
+---
+
+## AudioFrame
+
+Each `AudioFrame` contains:
+
+- `time: TimeStamp`  
+  Timestamp associated with the frame
+
+- `data: Vec<Vec<f32>>`  
+  Sample data organized as:
+  
+  data[channel_index][sample_index]
+
+Samples are stored as normalized floating-point values in the range `[-1.0, 1.0]`.
+
+---
+
+## Design
+
+- Audio is stored as `f32` normalized PCM
 - Processing is performed in floating-point domain
-- Clamping is applied only during export to integer formats
-- `Track` acts as a safe, structured container for audio data
+- Channel data is stored per frame, not interleaved
+- Conversion to interleaved formats is handled when needed
+
+This design allows:
+
+- Precise control over audio transformations
+- Easy per-channel manipulation
+- Separation between processing and export formats
 
 ---
 
-## 🔧 Accessors
+## Accessors
 
-```rust
-pub fn sample_rate(&self) -> &u32
-pub fn channels(&self) -> &u16
-pub fn buffer(&self) -> &Vec<f32>
-```
-
-Provides read-only access to internal metadata and sample buffer.
+- `sample_rate()` → returns sample rate  
+- `channels()` → returns number of channels  
+- `buffer()` → returns reference to audio frames  
 
 ---
 
 ## Core Operations
 
 ### Gain
+`gain(db)`
 
-```rust
-pub fn gain(&mut self, db: f32)
-```
-
-Applies gain in decibels.
-
-The conversion formula:
-
-```
-factor = 10^(dB / 20)
-```
+- Applies gain in decibels to all samples
+- Conversion:
+`factor = 10^(dB / 20)`
 
 Each sample is multiplied by this factor.
 
 ---
 
-### Mix
+### Mixing
+`Track::mix(a, b)`
 
-```rust
-pub fn mix(track1: &Track, track2: &Track) -> Result<Track, TrackError>
-```
-
-Mixes two tracks by summing corresponding samples.
+- Mixes two tracks sample-by-sample
 
 Requirements:
-- Same sample rate
-- Same number of channels
-- Same buffer length
 
-Returns `TrackError::MixingIsNotPossible` if constraints are not satisfied.
+- Same sample rate  
+- Same number of channels  
+- Same number of frames  
 
----
-
-### PCM Conversion
-
-#### To f32 PCM (Clamped)
-
-```rust
-pub fn to_pcm_f32(track: &Track) -> Vec<f32>
-```
-
-Returns samples clamped to `[-1.0, 1.0]`.
+Returns an error if tracks are incompatible.
 
 ---
 
-#### To i16 PCM
+### Normalization
+`normalize()`
 
-```rust
-pub fn to_pcm_i16(track: &Track) -> Vec<i16>
-```
-
-Converts normalized floating-point samples to 16-bit integer PCM.
-
-Formula:
-
-```
-sample_i16 = clamp(sample_f32, -1.0, 1.0) * i16::MAX
-```
+- Scales all samples so the maximum amplitude becomes 1.0
+- Returns `false` if the track is empty or silent
 
 ---
 
-## Errors
+## PCM Conversion
 
-```rust
-pub enum TrackError {
-    InvalidTrack,
-    MixingIsNotPossible,
-}
-```
+### To f32 PCM
+`to_pcm_f32()`
 
-Represents possible failures in track operations.
+- Flattens all frames into an interleaved stream
+- Clamps values to `[-1.0, 1.0]`
+
+---
+
+
+
+
+## Internal Behavior
+
+- Samples are processed per frame and per channel
+- Interleaving is performed during conversion
+- No implicit resampling or channel conversion is performed
+
+---
+
+## Error Handling
+
+Errors are represented using `TrackError`:
+
+- `MixingIsNotPossible`
+
+Returned when track properties do not match for mixing.
+
+---
+
+## Current Capabilities
+
+- Structured audio storage using frames
+- Gain adjustment
+- Track mixing
+- Normalization
+- Conversion to PCM formats
+
+---
+
+## Limitations
+
+- No resampling support
+- No time stretching or pitch shifting
+- No streaming or lazy decoding
+- No hardware acceleration
+
+---
+
+## Summary
+
+The `Track` type provides:
+
+- A structured representation of audio data
+- Floating-point processing for precision
+- Basic operations for audio manipulation
+
+It serves as the core abstraction for audio processing in Editron.

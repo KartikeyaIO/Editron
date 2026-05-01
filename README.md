@@ -1,74 +1,132 @@
 # Editron
-*A Programming Language for Video Editing*
+
+Editron is an experimental media processing system and domain-specific language for building composable media pipelines.
+
+The project focuses on explicit data representation, frame-level manipulation, and controlled execution.
+
+---
 
 ## Project Goals
 
-Editron is a domain-specific programming language designed for video editing and media processing.
+Editron is designed to:
 
-### Targets
-1. Simple, readable syntax inspired by Python.  
-2. Automatic memory management, refer to [Memory Architecture of Editron](docs/Memory.md)  
-3. High performance suitable for processing large video files  
-4. Robust file handling for different media formats  
-5. A unified language that exposes common and advanced editing tools  
+1. Provide a simple, readable syntax for media workflows  
+2. Maintain explicit control over data and execution  
+3. Support performance-critical processing  
+4. Handle multiple media formats through a unified interface  
+5. Build a structured system for extensible media operations  
 
 ---
-# Lexer
-- The Lexer's job is to convert the bytes inside the file to a set of Tokens that we can work on. 
-- In Editron the Lexer returns a `Vec<Token>` and which is used by the Parser to implement the IR.
-- For Detailed Architecture, Look at : [Lexer Architecture](docs/Lexer.md)
 
-# Parser
-- The Parser's job is to understand the tokens emitted by the Lexer and give meaning to it, the parser is what gives the language it syntax and semantics
-- Unlike traditional compilers that build an AST first, Editron’s parser directly emits an IR optimized for media execution.
+## Architecture Overview
 
-- You can take a look at it's current state here: [Parser](docs/Parser.md)
+Editron is composed of multiple subsystems:
+
+### Lexer
+Converts source code into tokens for further processing.
+
+- Outputs `Vec<Token>`
+- Implemented as a state machine
+- Used as the first stage of the DSL pipeline
+
+Details: [Lexer Architecture](docs/Lexer.md)
+
+---
+
+### Parser
+Consumes tokens and emits an intermediate representation (IR).
+
+- No AST construction
+- Direct IR emission
+- Designed for execution-oriented workflows
+
+Details: [Parser](docs/Parser.md)
+
+---
+
+### Media Processing Engine
+
+The execution core of Editron.
+
+Responsible for:
+
+- Decoding media
+- Frame-level manipulation
+- Audio processing
+- Encoding output
+
+Editron currently uses FFmpeg as a backend for encoding and decoding.  
+FFmpeg must be installed and available in the system path.
+
+---
+
+## Core Data Types
+
+Editron introduces several core data types:
+
+### Frame
+Represents a single image or video frame.
+
+- Stores structured pixel data
+- Supports multiple pixel formats
+- Enables pixel-level manipulation
+
+Details: [Frame](docs/Frame.md)
+
+---
+
+### Track
+Represents decoded audio data.
+
+- Stores normalized PCM samples
+- Supports gain, mixing, and normalization
+
+Details: [Track](docs/Track.md)
+
+---
 
 
-# The Media Processing Engine
-The execution core of Editron.  \
-Responsible for decoding, frame-level manipulation, audio processing, and encoding.\
-- For now Editron uses FFMPEG for Decoding and Encoding of file types and does require you to have FFMPEG installed on your system, for details check out the requirements section.
-- Editron introduces some DataTypes which are completely unique to Editron, They are Listed below:
-1. Frame: The Frame Type is used to store and work with a single image. Check : [The Frame Type](docs/Frame.md)
-2. Clip: The Clip Type is a wrapper around the `Vec<Frame>`  and is limited dynamically according to the resolution. [The Clip Type](docs/Clip.md)
-3. Track: The Track Type is built specifically to process the audio files. [The Track Type](docs/Track.md)
-4. Video: Video type is used to work with Video files as the name suggests. [The Video Type](docs/Video.md)
-- Clip is intentionally memory-bounded (~100MB default).  
-- For full-length processing, users should iterate over the Video type.
 
-##  Experiments
+### Video
+Provides access to video streams.
 
-- These are standalone experimental functions built to explore unconventional ideas around media transformation.
+- Frame decoding
+- Timestamp-based access
+- Integration with FFmpeg backend
 
-- They are **not part of the core Editron engine**, but they demonstrate exploratory work in cross-domain media processing.
+Details: [Video](docs/Video.md)
 
-- Feel free to experiment with them.
+---
 
+## Filter System
 
-## Current Status
+Filters are modular processing units applied to frames.
 
+- Trait-based abstraction
+- Extensible design
+- Supports convolution-based operations
 
-- Lexer: Stable for basic syntax.
-- Parser: Parser implementation was removed and will be updated soon.
-- Frame: Support for RGBA32,RGB24,GRAY8, is implemented.
-- Image IO:
-  - `load_image()`
-  - `export_frame_to_png()`
-- PixelFormat has implementations for RGBA,RGB24,Gray8.
-- Filter trait was added.
-- Gaussian Blur is also implemented.
+Details: [Filter System](docs/filters.md)
 
-## Future Updates may Include:
-- Implementation for Text, Video and Clip, more filters, and Parser.
-- Prelude, to allow Editron to access the features and Types I have built.
-- A shift to `ffmpeg-next` from CLI.
+---
 
-## Requirements
+## DSL (Planned)
 
-Editron v0.1 has been tested with:
+Editron is intended to support a domain-specific language for defining media pipelines.
 
-- **FFmpeg 8.0.1 (full_build, gyan.dev)**
-- Windows x64 (MSYS2 GCC build)
+Example syntax:
 
-Older versions may work, but are not officially tested.
+```edt
+import "filters.edt" as filter;
+
+frame1 = load("image.jpg")
+frame2 = load("image2.png")
+
+frame3 = frame1
+    -> brightness(50)
+    -> saturation(50)
+    -> emboss()
+    -> blend(frame2)
+    -> filter::vivid()
+
+export(frame3, "Outputs/image.png")
