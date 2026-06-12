@@ -14,6 +14,7 @@ pub enum TokenKind {
     /// TokenKind enum stores the kind of tokens implimented in Editron
     Identifier,
     Import,
+    As,
     Int,
     Float,
     String,
@@ -31,6 +32,13 @@ pub enum TokenKind {
     Dot,
     Comma,
     DotDot,
+    DoubleColon,
+    Arrow,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Kernel,
     EOF,
 }
 
@@ -74,6 +82,10 @@ pub fn char_to_token(c: char) -> Option<TokenKind> {
         '[' => Some(TokenKind::LeftBracket),
         ']' => Some(TokenKind::RightBracket),
         ',' => Some(TokenKind::Comma),
+        '+' => Some(TokenKind::Plus),
+        '-' => Some(TokenKind::Minus),
+        '*' => Some(TokenKind::Star),
+        '/' => Some(TokenKind::Slash),
         _ => None,
     }
 }
@@ -84,12 +96,13 @@ fn identify_token(s: &str) -> TokenKind {
         "filter" => TokenKind::Filter,
         "export" => TokenKind::Export,
         "import" => TokenKind::Import,
+        "as" => TokenKind::As,
+        "kernel" => TokenKind::Kernel,
         _ => TokenKind::Identifier,
     }
 }
 
 pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
-    // lexer function returns as Vector containing Tokens
     let bytes = source.as_bytes();
     let len = bytes.len();
 
@@ -149,18 +162,40 @@ pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
                     }
                 }
 
-                '-' => {
-                    if i + 1 < len && (bytes[i + 1] as char).is_ascii_digit() {
-                        buffer.clear();
-                        buffer.push('-');
-                        state = State::Number;
-                        i += 1;
+                ':' => {
+                    if i + 1 < len && bytes[i + 1] as char == ':' {
+                        tokens.push(Token {
+                            kind: TokenKind::DoubleColon,
+                            value: "::".to_string(),
+                            line,
+                        });
+                        i += 2;
                     } else {
                         return Err(LexError::InvalidCharacter {
-                            ch: '-',
+                            ch: ':',
                             line,
-                            message: "Unexpected '-' — did you mean a negative number?".to_string(),
+                            message: "Unexpected ':' — did you mean '::'?".to_string(),
                         });
+                    }
+                }
+
+                '-' => {
+                    if i + 1 < len && bytes[i + 1] as char == '>' {
+                        tokens.push(Token {
+                            kind: TokenKind::Arrow,
+                            value: "->".to_string(),
+                            line,
+                        });
+                        i += 2;
+                    } else {
+                        // Always a Minus token. Unary-vs-binary is resolved by
+                        // the parser based on position (prefix vs infix).
+                        tokens.push(Token {
+                            kind: TokenKind::Minus,
+                            value: "-".to_string(),
+                            line,
+                        });
+                        i += 1;
                     }
                 }
                 c => {
@@ -220,9 +255,7 @@ pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
                     buffer.push(c);
                     i += 1;
                 } else if c == '.' && !buffer.contains('.') {
-                    // peek ahead — if next char is also '.', this is a DotDot, not a float
                     if i + 1 < len && bytes[i + 1] as char == '.' {
-                        // flush current number first, don't consume the dots
                         let kind = if buffer.contains('.') {
                             TokenKind::Float
                         } else {
@@ -294,4 +327,73 @@ pub fn lexer(source: &str) -> Result<Vec<Token>, LexError> {
         line,
     });
     Ok(tokens)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lex_minus_is_binary_op() {
+        let toks = lexer("r - 1").unwrap();
+        let kinds: Vec<_> = toks.iter().map(|t| t.kind.clone()).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::Identifier,
+                TokenKind::Minus,
+                TokenKind::Int,
+                TokenKind::EOF
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_arrow_and_double_colon() {
+        let toks = lexer("a -> b::c").unwrap();
+        let kinds: Vec<_> = toks.iter().map(|t| t.kind.clone()).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::Identifier,
+                TokenKind::Arrow,
+                TokenKind::Identifier,
+                TokenKind::DoubleColon,
+                TokenKind::Identifier,
+                TokenKind::EOF
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_range_dotdot() {
+        let toks = lexer("0..10").unwrap();
+        let kinds: Vec<_> = toks.iter().map(|t| t.kind.clone()).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::Int,
+                TokenKind::DotDot,
+                TokenKind::Int,
+                TokenKind::EOF
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_as_keyword() {
+        let toks = lexer("import \"f.edt\" as filt;").unwrap();
+        let kinds: Vec<_> = toks.iter().map(|t| t.kind.clone()).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::Import,
+                TokenKind::String,
+                TokenKind::As,
+                TokenKind::Identifier,
+                TokenKind::SemiColon,
+                TokenKind::EOF
+            ]
+        );
+    }
 }

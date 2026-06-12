@@ -1,12 +1,594 @@
-use crate::lexer;
+use crate::lexer::{Token, TokenKind};
 
-pub enum State {
-    Load,
-    Import,
-    Export,
-    Assigment,
-    FunCall,
+// ─────────────────────────────────────────────────────────────────────────
+// AST
+// ─────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Import {
+    Std(Vec<String>),
+    File { path: String, alias: String },
 }
-pub struct Load {
-    path: String,
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BinOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Expr {
+    Ident(String),
+    Int(i64),
+    Float(f64),
+    Str(String),
+    Neg(Box<Expr>),
+    BinOp {
+        op: BinOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Call {
+        path: Vec<String>,
+        args: Vec<Expr>,
+    },
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        step: Option<Box<Expr>>,
+    },
+    Pipe {
+        base: Box<Expr>,
+        stages: Vec<PipeStage>,
+    },
+    // NEW: Array literals for Kernel matrices like `[[1, 2, 1], [2, 4, 2], [1, 2, 1]]`
+    Array(Vec<Expr>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PipeStage {
+    pub path: Vec<String>,
+    pub args: Vec<Expr>,
+    pub mask: Option<(Expr, Expr)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Channel {
+    R,
+    G,
+    B,
+    A,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChannelAssign {
+    pub channel: Channel,
+    pub value: Expr,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FilterDecl {
+    pub name: String,
+    pub params: Vec<String>,
+    pub body: Vec<ChannelAssign>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Item {
+    Import(Import),
+    Assign { name: String, value: Expr },
+    FilterDecl(FilterDecl),
+    // NEW: Kernel Declaration, e.g., kernel blur = [[1.0, 2.0], [3.0, 4.0]];
+    KernelDecl { name: String, matrix: Expr },
+    Export { value: Expr, path: Expr },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Program {
+    pub items: Vec<Item>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Errors
+// ─────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParseError {
+    UnexpectedToken {
+        expected: String,
+        found: TokenKind,
+        line: usize,
+    },
+    UnexpectedEof {
+        expected: String,
+    },
+    InvalidNumber {
+        value: String,
+        line: usize,
+    },
+    InvalidChannel {
+        name: String,
+        line: usize,
+    },
+}
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseError::UnexpectedToken {
+                expected,
+                found,
+                line,
+            } => write!(f, "line {line}: expected {expected}, found {found:?}"),
+            ParseError::UnexpectedEof { expected } => {
+                write!(f, "unexpected end of input, expected {expected}")
+            }
+            ParseError::InvalidNumber { value, line } => {
+                write!(f, "line {line}: invalid number literal '{value}'")
+            }
+            ParseError::InvalidChannel { name, line } => {
+                write!(
+                    f,
+                    "line {line}: '{name}' is not a valid channel (expected r, g, b, or a)"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for ParseError {}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Parser
+// ─────────────────────────────────────────────────────────────────────────
+
+pub struct Parser<'a> {
+    tokens: &'a [Token],
+    pos: usize,
+}
+
+type PResult<T> = Result<T, ParseError>;
+
+impl<'a> Parser<'a> {
+    pub fn new(tokens: &'a [Token]) -> Self {
+        Self { tokens, pos: 0 }
+    }
+
+    fn peek(&self) -> &Token {
+        &self.tokens[self.pos.min(self.tokens.len() - 1)]
+    }
+
+    fn peek_kind(&self) -> &TokenKind {
+        &self.peek().kind
+    }
+
+    fn advance(&mut self) -> Token {
+        let tok = self.peek().clone();
+        if self.pos < self.tokens.len() - 1 {
+            self.pos += 1;
+        }
+        tok
+    }
+
+    fn check(&self, kind: &TokenKind) -> bool {
+        self.peek_kind() == kind
+    }
+
+    fn expect(&mut self, kind: TokenKind, expected: &str) -> PResult<Token> {
+        if self.check(&kind) {
+            Ok(self.advance())
+        } else if matches!(self.peek_kind(), TokenKind::EOF) {
+            Err(ParseError::UnexpectedEof {
+                expected: expected.to_string(),
+            })
+        } else {
+            Err(ParseError::UnexpectedToken {
+                expected: expected.to_string(),
+                found: self.peek_kind().clone(),
+                line: self.peek().line,
+            })
+        }
+    }
+
+    fn expect_identifier(&mut self, expected: &str) -> PResult<String> {
+        match self.peek_kind() {
+            TokenKind::Identifier => Ok(self.advance().value),
+            TokenKind::EOF => Err(ParseError::UnexpectedEof {
+                expected: expected.to_string(),
+            }),
+            other => Err(ParseError::UnexpectedToken {
+                expected: expected.to_string(),
+                found: other.clone(),
+                line: self.peek().line,
+            }),
+        }
+    }
+
+    pub fn parse_program(&mut self) -> PResult<Program> {
+        let mut items = Vec::new();
+        while !matches!(self.peek_kind(), TokenKind::EOF) {
+            items.push(self.parse_item()?);
+        }
+        Ok(Program { items })
+    }
+
+    fn parse_item(&mut self) -> PResult<Item> {
+        match self.peek_kind() {
+            TokenKind::Import => self.parse_import(),
+            TokenKind::Filter => self.parse_filter_decl(),
+            TokenKind::Kernel => self.parse_kernel_decl(), // Route Kernel Tokens
+            TokenKind::Export => self.parse_export(),
+            TokenKind::Identifier => self.parse_assignment(),
+            other => Err(ParseError::UnexpectedToken {
+                expected: "import, filter, kernel, export, or assignment".to_string(),
+                found: other.clone(),
+                line: self.peek().line,
+            }),
+        }
+    }
+
+    fn parse_import(&mut self) -> PResult<Item> {
+        self.expect(TokenKind::Import, "'import'")?;
+
+        let import = match self.peek_kind() {
+            TokenKind::String => {
+                let path = self.advance().value;
+                self.expect(TokenKind::As, "'as'")?;
+                let alias = self.expect_identifier("an alias name")?;
+                Import::File { path, alias }
+            }
+            TokenKind::Identifier => {
+                let mut segments = vec![self.advance().value];
+                while self.check(&TokenKind::DoubleColon) {
+                    self.advance();
+                    segments.push(self.expect_identifier("a path segment")?);
+                }
+                Import::Std(segments)
+            }
+            other => {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "a module path or a quoted file path".to_string(),
+                    found: other.clone(),
+                    line: self.peek().line,
+                });
+            }
+        };
+
+        self.expect(TokenKind::SemiColon, "';'")?;
+        Ok(Item::Import(import))
+    }
+
+    fn parse_filter_decl(&mut self) -> PResult<Item> {
+        self.expect(TokenKind::Filter, "'filter'")?;
+        let name = self.expect_identifier("a filter name")?;
+
+        self.expect(TokenKind::LeftParen, "'('")?;
+        let mut params = Vec::new();
+        if !self.check(&TokenKind::RightParen) {
+            loop {
+                params.push(self.expect_identifier("a parameter name")?);
+                if self.check(&TokenKind::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+        self.expect(TokenKind::RightParen, "')'")?;
+
+        self.expect(TokenKind::LeftBrace, "'{'")?;
+        let mut body = Vec::new();
+        while !self.check(&TokenKind::RightBrace) {
+            body.push(self.parse_channel_assign()?);
+        }
+        self.expect(TokenKind::RightBrace, "'}'")?;
+
+        Ok(Item::FilterDecl(FilterDecl { name, params, body }))
+    }
+
+    // NEW: Parse Kernel block -> kernel blur = [[1, 2, 1], [2, 4, 2], [1, 2, 1]];
+    fn parse_kernel_decl(&mut self) -> PResult<Item> {
+        self.expect(TokenKind::Kernel, "'kernel'")?;
+        let name = self.expect_identifier("a kernel name")?;
+        self.expect(TokenKind::Equal, "'='")?;
+        let matrix = self.parse_expr()?;
+        self.expect(TokenKind::SemiColon, "';'")?;
+
+        Ok(Item::KernelDecl { name, matrix })
+    }
+
+    fn parse_channel_assign(&mut self) -> PResult<ChannelAssign> {
+        let tok = self.peek().clone();
+        let name = self.expect_identifier("a channel name (r, g, b, or a)")?;
+        let channel = match name.as_str() {
+            "r" => Channel::R,
+            "g" => Channel::G,
+            "b" => Channel::B,
+            "a" => Channel::A,
+            _ => {
+                return Err(ParseError::InvalidChannel {
+                    name,
+                    line: tok.line,
+                });
+            }
+        };
+
+        self.expect(TokenKind::Equal, "'='")?;
+        let value = self.parse_expr()?;
+        self.expect(TokenKind::SemiColon, "';'")?;
+
+        Ok(ChannelAssign { channel, value })
+    }
+
+    fn parse_export(&mut self) -> PResult<Item> {
+        self.expect(TokenKind::Export, "'export'")?;
+        self.expect(TokenKind::LeftParen, "'('")?;
+        let value = self.parse_expr()?;
+        self.expect(TokenKind::Comma, "','")?;
+        let path = self.parse_expr()?;
+        self.expect(TokenKind::RightParen, "')'")?;
+        self.expect(TokenKind::SemiColon, "';'")?;
+        Ok(Item::Export { value, path })
+    }
+
+    fn parse_assignment(&mut self) -> PResult<Item> {
+        let name = self.expect_identifier("an identifier")?;
+        self.expect(TokenKind::Equal, "'='")?;
+        let value = self.parse_expr()?;
+        self.expect(TokenKind::SemiColon, "';'")?;
+        Ok(Item::Assign { name, value })
+    }
+
+    pub fn parse_expr(&mut self) -> PResult<Expr> {
+        self.parse_pipe()
+    }
+
+    fn parse_pipe(&mut self) -> PResult<Expr> {
+        let base = self.parse_range()?;
+
+        if !self.check(&TokenKind::Arrow) {
+            return Ok(base);
+        }
+
+        let mut stages = Vec::new();
+        while self.check(&TokenKind::Arrow) {
+            self.advance();
+            stages.push(self.parse_pipe_stage()?);
+        }
+
+        Ok(Expr::Pipe {
+            base: Box::new(base),
+            stages,
+        })
+    }
+
+    fn parse_pipe_stage(&mut self) -> PResult<PipeStage> {
+        let path = self.parse_path()?;
+
+        self.expect(TokenKind::LeftParen, "'(' after filter name")?;
+        let args = self.parse_arg_list()?;
+        self.expect(TokenKind::RightParen, "')'")?;
+
+        let mask = if self.check(&TokenKind::LeftBracket) {
+            self.advance();
+            let x_range = self.parse_range()?;
+            self.expect(TokenKind::Comma, "',' between x and y ranges in mask")?;
+            let y_range = self.parse_range()?;
+            self.expect(TokenKind::RightBracket, "']'")?;
+            Some((x_range, y_range))
+        } else {
+            None
+        };
+
+        Ok(PipeStage { path, args, mask })
+    }
+
+    fn parse_range(&mut self) -> PResult<Expr> {
+        let start = self.parse_additive()?;
+
+        if !self.check(&TokenKind::DotDot) {
+            return Ok(start);
+        }
+        self.advance();
+
+        let end = self.parse_additive()?;
+
+        let step = if self.check(&TokenKind::DotDot) {
+            self.advance();
+            Some(Box::new(self.parse_additive()?))
+        } else {
+            None
+        };
+
+        Ok(Expr::Range {
+            start: Box::new(start),
+            end: Box::new(end),
+            step,
+        })
+    }
+
+    fn parse_additive(&mut self) -> PResult<Expr> {
+        let mut lhs = self.parse_multiplicative()?;
+
+        loop {
+            let op = match self.peek_kind() {
+                TokenKind::Plus => BinOp::Add,
+                TokenKind::Minus => BinOp::Sub,
+                _ => break,
+            };
+            self.advance();
+            let rhs = self.parse_multiplicative()?;
+            lhs = Expr::BinOp {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
+        }
+
+        Ok(lhs)
+    }
+
+    fn parse_multiplicative(&mut self) -> PResult<Expr> {
+        let mut lhs = self.parse_unary()?;
+
+        loop {
+            let op = match self.peek_kind() {
+                TokenKind::Star => BinOp::Mul,
+                TokenKind::Slash => BinOp::Div,
+                _ => break,
+            };
+            self.advance();
+            let rhs = self.parse_unary()?;
+            lhs = Expr::BinOp {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
+        }
+
+        Ok(lhs)
+    }
+
+    fn parse_unary(&mut self) -> PResult<Expr> {
+        if self.check(&TokenKind::Minus) {
+            self.advance();
+            let expr = self.parse_unary()?;
+            return Ok(Expr::Neg(Box::new(expr)));
+        }
+        self.parse_primary()
+    }
+
+    fn parse_primary(&mut self) -> PResult<Expr> {
+        let tok = self.peek().clone();
+
+        match &tok.kind {
+            TokenKind::Int => {
+                self.advance();
+                tok.value
+                    .parse::<i64>()
+                    .map(Expr::Int)
+                    .map_err(|_| ParseError::InvalidNumber {
+                        value: tok.value,
+                        line: tok.line,
+                    })
+            }
+            TokenKind::Float => {
+                self.advance();
+                tok.value
+                    .parse::<f64>()
+                    .map(Expr::Float)
+                    .map_err(|_| ParseError::InvalidNumber {
+                        value: tok.value,
+                        line: tok.line,
+                    })
+            }
+            TokenKind::String => {
+                self.advance();
+                Ok(Expr::Str(tok.value))
+            }
+            TokenKind::LeftParen => {
+                self.advance();
+                let inner = self.parse_expr()?;
+                self.expect(TokenKind::RightParen, "')'")?;
+                Ok(inner)
+            }
+            TokenKind::LeftBracket => {
+                // NEW: Parse array literals (for kernel matrices)
+                self.advance();
+                let mut elements = Vec::new();
+                if !self.check(&TokenKind::RightBracket) {
+                    loop {
+                        elements.push(self.parse_expr()?);
+                        if self.check(&TokenKind::Comma) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.expect(TokenKind::RightBracket, "']'")?;
+                Ok(Expr::Array(elements))
+            }
+            TokenKind::Load => {
+                self.advance();
+                self.expect(TokenKind::LeftParen, "'(' after 'load'")?;
+                let args = self.parse_arg_list()?;
+                self.expect(TokenKind::RightParen, "')'")?;
+                Ok(Expr::Call {
+                    path: vec!["load".to_string()],
+                    args,
+                })
+            }
+            TokenKind::Identifier => {
+                let path = self.parse_path()?;
+
+                if self.check(&TokenKind::LeftParen) {
+                    self.advance();
+                    let args = self.parse_arg_list()?;
+                    self.expect(TokenKind::RightParen, "')'")?;
+                    Ok(Expr::Call { path, args })
+                } else if path.len() == 1 {
+                    Ok(Expr::Ident(path.into_iter().next().unwrap()))
+                } else {
+                    Ok(Expr::Call { path, args: vec![] })
+                }
+            }
+            TokenKind::EOF => Err(ParseError::UnexpectedEof {
+                expected: "an expression".to_string(),
+            }),
+            other => Err(ParseError::UnexpectedToken {
+                expected: "an expression".to_string(),
+                found: other.clone(),
+                line: tok.line,
+            }),
+        }
+    }
+
+    fn parse_path(&mut self) -> PResult<Vec<String>> {
+        let mut segments = vec![self.expect_identifier("an identifier")?];
+        while self.check(&TokenKind::DoubleColon) {
+            self.advance();
+            segments.push(self.expect_identifier("a path segment")?);
+        }
+        Ok(segments)
+    }
+
+    fn parse_arg_list(&mut self) -> PResult<Vec<Expr>> {
+        let mut args = Vec::new();
+        if self.check(&TokenKind::RightParen) {
+            return Ok(args);
+        }
+        loop {
+            args.push(self.parse_expr()?);
+            if self.check(&TokenKind::Comma) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        Ok(args)
+    }
+}
+
+pub fn parse(source: &str) -> Result<Program, ParseOrLexError> {
+    let tokens = crate::lexer::lexer(source).map_err(ParseOrLexError::Lex)?;
+    let mut parser = Parser::new(&tokens);
+    parser.parse_program().map_err(ParseOrLexError::Parse)
+}
+
+#[derive(Debug)]
+pub enum ParseOrLexError {
+    Lex(crate::lexer::LexError),
+    Parse(ParseError),
+}
+
+impl std::fmt::Display for ParseOrLexError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseOrLexError::Lex(e) => write!(f, "lex error: {e:?}"),
+            ParseOrLexError::Parse(e) => write!(f, "parse error: {e}"),
+        }
+    }
 }
