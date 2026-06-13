@@ -1,10 +1,19 @@
 use crate::filter::{Filter, FilterVM};
 use crate::media::frame::{Color, Frame, Pos};
 use crate::pipeline::kernel::Kernel;
+use crate::range::Mask;
 
 pub enum Operation {
-    PointFilter(Filter),
-    Convolution(Kernel),
+    PointFilter {
+        filter: Filter,
+        params: Vec<f32>,
+        mask: Option<Mask>,
+    },
+
+    Convolution {
+        kernel: Kernel,
+        mask: Option<Mask>,
+    },
 }
 
 // ── Unified Pipeline ─────────────────────────────────────────────────────────
@@ -29,44 +38,58 @@ impl Pipeline for EffectPipeline {
         let width = frame.width();
         let height = frame.height();
 
-        // Take a snapshot of the starting frame for convolution passes
-        // so neighborhood calculations remain stable throughout the pipeline execution
-        let original_frame = frame.clone();
+        for operation in &self.operations {
+            match operation {
+                Operation::PointFilter {
+                    filter,
+                    params,
+                    mask,
+                } => {
+                    let mut vm = FilterVM::new();
 
-        for y in 0..height {
-            for x in 0..width {
-                let pos = Pos(x, y);
-                // Begin with the unedited pixel
-                let mut current_color = original_frame
-                    .get_pixel(&pos)
-                    .unwrap_or(Color::RGB(0, 0, 0));
+                    for y in 0..height {
+                        for x in 0..width {
+                            if let Some(mask) = mask {
+                                if !mask.contains(x as usize, y as usize) {
+                                    continue;
+                                }
+                            }
 
-                for op in &self.operations {
-                    match op {
-                        Operation::PointFilter(filter) => {
-                            let mut filtervm = FilterVM::new();
-                            // Filters just modify the color point-to-point!
-                            current_color = filter.apply(
-                                current_color,
-                                x,
-                                y,
-                                width,
-                                height,
-                                &[0.0],
-                                &mut filtervm,
-                            );
-                        }
-                        Operation::Convolution(kernel) => {
-                            // Kernels require neighborhoods, so they poll the original frame snapshot
-                            current_color = kernel.apply_to_pixel(x, y, &original_frame);
+                            let pos = Pos(x, y);
+
+                            let color = frame.get_pixel(&pos).unwrap_or(Color::RGB(0, 0, 0));
+
+                            let result = filter.apply(color, x, y, width, height, params, &mut vm);
+
+                            frame
+                                .set_pixel(&pos, &result)
+                                .map_err(|_| PipelineError::PixelError)?;
                         }
                     }
                 }
 
-                // Boom. One write per pixel. Iterating efficiently.
-                frame
-                    .set_pixel(&pos, &current_color)
-                    .map_err(|_| PipelineError::PixelError)?;
+                Operation::Convolution { kernel, mask } => {
+                    // Snapshot BEFORE this kernel pass
+                    let snapshot = frame.clone();
+
+                    for y in 0..height {
+                        for x in 0..width {
+                            if let Some(mask) = mask {
+                                if !mask.contains(x as usize, y as usize) {
+                                    continue;
+                                }
+                            }
+
+                            let pos = Pos(x, y);
+
+                            let result = kernel.apply_to_pixel(x, y, &snapshot);
+
+                            frame
+                                .set_pixel(&pos, &result)
+                                .map_err(|_| PipelineError::PixelError)?;
+                        }
+                    }
+                }
             }
         }
 

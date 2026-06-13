@@ -38,6 +38,7 @@ pub enum TokenKind {
     Minus,
     Star,
     Slash,
+    Blank,
     Kernel,
     EOF,
 }
@@ -98,6 +99,7 @@ fn identify_token(s: &str) -> TokenKind {
         "import" => TokenKind::Import,
         "as" => TokenKind::As,
         "kernel" => TokenKind::Kernel,
+        "blank" => TokenKind::Blank,
         _ => TokenKind::Identifier,
     }
 }

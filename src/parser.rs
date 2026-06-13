@@ -521,6 +521,20 @@ impl<'a> Parser<'a> {
                     args,
                 })
             }
+            TokenKind::Blank => {
+                self.advance();
+
+                self.expect(TokenKind::LeftParen, "'(' after 'blank'")?;
+
+                let args = self.parse_arg_list()?;
+
+                self.expect(TokenKind::RightParen, "')'")?;
+
+                Ok(Expr::Call {
+                    path: vec!["blank".to_string()],
+                    args,
+                })
+            }
             TokenKind::Identifier => {
                 let path = self.parse_path()?;
 

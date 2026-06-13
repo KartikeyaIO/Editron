@@ -150,7 +150,10 @@ pub fn load_image(path: &str, fmt: &str) -> Result<Frame, FrameError> {
 
         _ => return Err(FrameError::InvalidPixelFormat),
     };
-
+    // println!(
+    //     "Loaded Image with \n width = {}\n height = {}\n data = {:?}",
+    //     width, height, data
+    // );
     Frame::new(width, height, data)
 }
 

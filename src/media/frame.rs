@@ -39,6 +39,13 @@ impl Color {
             _ => 0,
         }
     }
+    pub fn to_rgba(self) -> Color {
+        match self {
+            Color::Gray(v) => Color::RGBA(v, v, v, v),
+            Color::RGB(r, g, b) => Color::RGBA(r, g, b, 255),
+            Color::RGBA(r, g, b, a) => Color::RGBA(r, g, b, a),
+        }
+    }
 }
 #[derive(Debug, Clone, Copy)]
 pub struct Pos(pub u32, pub u32);
@@ -417,6 +424,10 @@ impl Frame {
         }
         Ok(())
     }
+    pub fn to_rgba(&self) -> Result<Frame, FrameError> {
+        let data = self.data.to_rgba8(self.width, self.height)?;
+        Frame::new(self.width, self.height, data)
+    }
     pub fn opacity(&mut self, pos: &Pos, value: u8) -> Result<(), FrameError> {
         if self.data.bytes_per_pixel() != 4 {
             return Err(FrameError::InvalidPixelFormat);
@@ -614,5 +625,21 @@ impl Frame {
         }
 
         Ok(())
+    }
+}
+impl Frame {
+    pub fn blank(width: u32, height: u32) -> Self {
+        let len = (width * height) as usize;
+
+        Self {
+            width,
+            height,
+            data: PixelData::RGBA(
+                vec![0u8; len],
+                vec![0u8; len],
+                vec![0u8; len],
+                vec![255u8; len],
+            ),
+        }
     }
 }

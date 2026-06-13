@@ -2,7 +2,7 @@ use media::frame::{Frame, PixelData};
 
 // use crate::io::export_frame_to_png;
 
-mod engine;
+pub mod engine;
 pub mod experiments;
 pub mod filter;
 pub mod io;

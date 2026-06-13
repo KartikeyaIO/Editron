@@ -48,5 +48,6 @@ impl Kernel {
             (g_sum / div).clamp(0.0, 255.0) as u8,
             (b_sum / div).clamp(0.0, 255.0) as u8,
         )
+        .to_rgba()
     }
 }

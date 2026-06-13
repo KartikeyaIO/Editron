@@ -456,7 +456,7 @@ impl Filter {
         let b = vm.execute(&self.b_program, &ctx, params).clamp(0.0, 255.0) as u8;
 
         match color {
-            Color::RGB(_, _, _) => Color::RGB(r, g, b),
+            Color::RGB(_, _, _) => Color::RGB(r, g, b).to_rgba(),
 
             Color::RGBA(_, _, _, _) => {
                 let a = vm.execute(&self.a_program, &ctx, params).clamp(0.0, 255.0) as u8;
@@ -464,7 +464,7 @@ impl Filter {
                 Color::RGBA(r, g, b, a)
             }
 
-            Color::Gray(_) => Color::Gray(r),
+            Color::Gray(_) => Color::Gray(r).to_rgba(),
         }
     }
 }
