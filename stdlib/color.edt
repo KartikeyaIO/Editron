@@ -6,6 +6,21 @@ filter sepia() {
     b = b * 0.8;
 }
 
+filter hdr(strength) {
+    r = clamp(r + strength * (r - 128), 0, 255);
+    g = clamp(g + strength * (g - 128), 0, 255);
+    b = clamp(b + strength * (b - 128), 0, 255);
+}
+filter hdr2(strength) {
+    r = clamp(pow(r / 255, 0.8) * 255 * strength, 0, 255);
+    g = clamp(pow(g / 255, 0.8) * 255 * strength, 0, 255);
+    b = clamp(pow(b / 255, 0.8) * 255 * strength, 0, 255);
+}
+filter teal_orange(amount) {
+    r = clamp(r + amount * 25, 0, 255);
+    g = clamp(g - amount * 10, 0, 255);
+    b = clamp(b + amount * 20, 0, 255);
+}
 
 filter vintage() {
     r = ((r * 1.2 - 128) * 0.9) + 128;

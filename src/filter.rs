@@ -102,6 +102,8 @@ pub enum Instruction {
     Floor,
     Ceil,
     Round,
+    StoreLocal(usize),
+    LoadLocal(usize),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -117,12 +119,14 @@ pub struct PixelContext {
 
 pub struct FilterVM {
     stack: Vec<f32>,
+    locals: Vec<f32>,
 }
 
 impl FilterVM {
     pub fn new() -> Self {
         Self {
             stack: Vec::with_capacity(64),
+            locals: vec![0.0; 16],
         }
     }
 
@@ -422,6 +426,17 @@ impl FilterVM {
                 Instruction::Round => {
                     let x = { self.pop().round() };
                     self.push(x);
+                }
+                Instruction::StoreLocal(index) => {
+                    let val = self.pop();
+                    if *index >= self.locals.len() {
+                        self.locals.resize(*index + 1, 0.0);
+                    }
+                    self.locals[*index] = val;
+                }
+                Instruction::LoadLocal(index) => {
+                    let val = self.locals.get(*index).copied().unwrap_or(0.0);
+                    self.push(val);
                 }
             }
         }

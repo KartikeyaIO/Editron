@@ -13,6 +13,7 @@ pub struct Token {
 pub enum TokenKind {
     /// TokenKind enum stores the kind of tokens implimented in Editron
     Identifier,
+    Let,
     Import,
     As,
     Int,
@@ -105,6 +106,7 @@ fn identify_token(s: &str) -> TokenKind {
         "as" => TokenKind::As,
         "kernel" => TokenKind::Kernel,
         "blank" => TokenKind::Blank,
+        "let" => TokenKind::Let,
         _ => TokenKind::Identifier,
     }
 }

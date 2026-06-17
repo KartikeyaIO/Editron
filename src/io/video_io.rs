@@ -10,28 +10,13 @@ use ffmpeg::software::scaling::{context::Context, flag::Flags};
 use ffmpeg::util::format::pixel::Pixel;
 use ffmpeg_next as ffmpeg;
 
-// ─── Video (Decoder) ──────────────────────────────────────────────────────────
-//
-// Holds the open demuxer + decoder and a cursor that advances on every
-// decode_next() call.  The caller never touches PTS, time-bases, or rationals.
-//
-// Typical usage:
-//
-//   let mut video = Video::open("input.mp4")?;
-//   while let Some(frame) = video.decode_next()? {
-//       // work on frame.frame  (a plain Frame)
-//   }
-//
-//   // — or — jump to an arbitrary frame:
-//   let frame = video.decode_frame(120)?;   // frame index, not PTS
-
 pub struct Video {
     // FFmpeg internals — never exposed
     ictx: ffmpeg::format::context::Input,
     decoder: ffmpeg::decoder::Video,
     video_index: usize,
-    time_base: ffmpeg::Rational,  // kept for PTS ↔ index math only
-    frame_rate: ffmpeg::Rational, // kept for PTS ↔ index math only
+    time_base: ffmpeg::Rational,
+    frame_rate: ffmpeg::Rational,
 
     // Public metadata (read via accessors)
     width: u32,
@@ -39,11 +24,6 @@ pub struct Video {
     frame_count: u64, // 0 if container doesn't report duration
     fps: f64,
 }
-
-// Convert a raw fps float into a clean ffmpeg::Rational with a denominator
-// that MPEG4 (and every other codec) can handle — max denominator 1001.
-// Recognises NTSC drop-frame rates (23.976, 29.97, 59.94) and all integer
-// frame rates.  Anything unrecognised is rounded to the nearest integer fps.
 
 fn normalize_frame_rate(fps: f64) -> ffmpeg::Rational {
     if fps <= 0.0 || fps.is_nan() || fps.is_infinite() {

@@ -1,29 +1,125 @@
-import core;
 
- filter edge_detect() {
-    sobel()
-}
 
- filter outline() {
-    sobel()
-    threshold(64)
-}
+kernel box_blur = [
+[1,1,1],
+[1,1,1],
+[1,1,1]
+];
 
- filter strong_edges() {
-    sobel()
-    contrast(2.0)
-}
+kernel gaussian_blur = [
+[1,2,1],
+[2,4,2],
+[1,2,1]
+];
 
- filter weak_edges() {
-    sobel()
-    contrast(0.5)
-}
+kernel soft_blur = [
+[1,1,1],
+[1,2,1],
+[1,1,1]
+];
 
- filter contour() {
-    laplacian()
-}
 
- filter binary_edges() {
-    sobel()
-    threshold(128)
-}
+
+kernel sharpen = [
+[0,-1,0],
+[-1,5,-1],
+[0,-1,0]
+];
+
+kernel giga_sharpen = [
+[0,-2,0],
+[-2,9,-2],
+[0,-2,0]
+];
+
+kernel ultra_sharpen = [
+[-1,-1,-1],
+[-1,13,-1],
+[-1,-1,-1]
+];
+
+
+kernel edge = [
+[-1,-1,-1],
+[-1,8,-1],
+[-1,-1,-1]
+];
+
+kernel edge_soft = [
+[0,-1,0],
+[-1,4,-1],
+[0,-1,0]
+];
+
+kernel edge_strong = [
+[-2,-2,-2],
+[-2,16,-2],
+[-2,-2,-2]
+];
+
+
+
+kernel emboss = [
+[-2,-1,0],
+[-1,1,1],
+[0,1,2]
+];
+
+kernel emboss_reverse = [
+[2,1,0],
+[1,1,-1],
+[0,-1,-2]
+];
+
+
+
+kernel outline = [
+[-1,-1,-1],
+[-1,9,-1],
+[-1,-1,-1]
+];
+
+
+
+kernel motion_horizontal = [
+[0,0,0,0,0],
+[0,0,0,0,0],
+[1,1,1,1,1],
+[0,0,0,0,0],
+[0,0,0,0,0]
+];
+
+kernel motion_vertical = [
+[0,0,1,0,0],
+[0,0,1,0,0],
+[0,0,1,0,0],
+[0,0,1,0,0],
+[0,0,1,0,0]
+];
+
+
+kernel cartoon_edge = [
+[1,1,1],
+[1,-8,1],
+[1,1,1]
+];
+
+kernel high_contrast = [
+[0,-1,0],
+[-1,6,-1],
+[0,-1,0]
+];
+
+
+
+kernel cross_sharpen = [
+[0,-1,0],
+[-1,7,-1],
+[0,-1,0]
+];
+
+kernel crystal = [
+[-1,0,-1],
+[0,8,0],
+[-1,0,-1]
+];

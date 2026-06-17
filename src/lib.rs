@@ -1,3 +1,4 @@
+#![allow(warnings)]
 use media::frame::{Frame, PixelData};
 
 // use crate::io::export_frame_to_png;

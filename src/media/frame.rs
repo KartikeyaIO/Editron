@@ -642,4 +642,83 @@ impl Frame {
             ),
         }
     }
+    pub fn crop(&self, x: u32, y: u32, width: u32, height: u32) -> Result<Frame, FrameError> {
+        if x + width > self.width || y + height > self.height {
+            return Err(FrameError::InvalidFrameSize);
+        }
+
+        let len = (width * height) as usize;
+
+        match &self.data {
+            PixelData::GRAY(src) => {
+                let mut dst = vec![0u8; len];
+
+                for row in 0..height {
+                    let src_start = ((y + row) * self.width + x) as usize;
+                    let src_end = src_start + width as usize;
+
+                    let dst_start = (row * width) as usize;
+
+                    dst[dst_start..dst_start + width as usize]
+                        .copy_from_slice(&src[src_start..src_end]);
+                }
+
+                Frame::new(width, height, PixelData::GRAY(dst))
+            }
+
+            PixelData::RGB(r, g, b) => {
+                let mut r_out = vec![0u8; len];
+                let mut g_out = vec![0u8; len];
+                let mut b_out = vec![0u8; len];
+
+                for row in 0..height {
+                    let src_start = ((y + row) * self.width + x) as usize;
+                    let src_end = src_start + width as usize;
+
+                    let dst_start = (row * width) as usize;
+
+                    r_out[dst_start..dst_start + width as usize]
+                        .copy_from_slice(&r[src_start..src_end]);
+
+                    g_out[dst_start..dst_start + width as usize]
+                        .copy_from_slice(&g[src_start..src_end]);
+
+                    b_out[dst_start..dst_start + width as usize]
+                        .copy_from_slice(&b[src_start..src_end]);
+                }
+
+                Frame::new(width, height, PixelData::RGB(r_out, g_out, b_out))
+            }
+
+            PixelData::RGBA(r, g, b, a) => {
+                let mut r_out = vec![0u8; len];
+                let mut g_out = vec![0u8; len];
+                let mut b_out = vec![0u8; len];
+                let mut a_out = vec![0u8; len];
+
+                for row in 0..height {
+                    let src_start = ((y + row) * self.width + x) as usize;
+                    let src_end = src_start + width as usize;
+
+                    let dst_start = (row * width) as usize;
+
+                    r_out[dst_start..dst_start + width as usize]
+                        .copy_from_slice(&r[src_start..src_end]);
+
+                    g_out[dst_start..dst_start + width as usize]
+                        .copy_from_slice(&g[src_start..src_end]);
+
+                    b_out[dst_start..dst_start + width as usize]
+                        .copy_from_slice(&b[src_start..src_end]);
+
+                    a_out[dst_start..dst_start + width as usize]
+                        .copy_from_slice(&a[src_start..src_end]);
+                }
+
+                Frame::new(width, height, PixelData::RGBA(r_out, g_out, b_out, a_out))
+            }
+
+            PixelData::YUV420(..) => Err(FrameError::YUVNotApplied),
+        }
+    }
 }

@@ -11,6 +11,26 @@ pub struct Kernel {
 }
 
 impl Kernel {
+    pub fn generate_blur(name: &str, mut size: usize) -> Self {
+        // Enforce odd sizing so the kernel always has a true center pixel
+        if size % 2 == 0 {
+            size += 1;
+        }
+
+        let total_elements = size * size;
+
+        // A box blur simply averages all surrounding pixels evenly.
+        // We fill a 1D flat vector with 1.0s, and divide by the total element count.
+        let matrix = vec![1.0; total_elements];
+
+        Self {
+            name: name.to_string(),
+            matrix,
+            size,
+            divisor: total_elements as f32,
+        }
+    }
+
     /// Applies a spatial convolution around a specific (x, y) coordinate.
     pub fn apply_to_pixel(&self, x: u32, y: u32, original_frame: &Frame) -> Color {
         let half = (self.size / 2) as i32;

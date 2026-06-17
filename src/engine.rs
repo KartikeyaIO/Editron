@@ -2,14 +2,38 @@ use std::collections::{HashMap, HashSet};
 
 use crate::filter::{Filter, Instruction};
 use crate::io::io::{self, IOError};
+use crate::io::video_io::{Video, VideoEncoder};
 use crate::media::frame::Frame;
-use crate::parser::{BinOp, Channel, ChannelAssign, Expr, FilterDecl, Import, Item, Program};
+use crate::parser::{
+    BinOp, Channel, ChannelAssign, Expr, FilterDecl, Import, Item, Program, Statement,
+};
 use crate::pipeline::kernel::Kernel;
 use crate::pipeline::pipeline::{EffectPipeline, Operation, Pipeline, PipelineError};
 use crate::range::{Mask, Rect, StepRange};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+#[derive(Clone)]
+pub struct VideoHandle(pub Rc<RefCell<Video>>);
+
+// Provide a custom, safe Debug implementation that peeks at the metadata
+impl std::fmt::Debug for VideoHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let vid = self.0.borrow();
+        write!(
+            f,
+            "Video {{ width: {}, height: {}, fps: {}, frames: {} }}",
+            vid.width(),
+            vid.height(),
+            vid.fps(),
+            vid.frame_count()
+        )
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum Value {
+    //Video(VideoHandle),
     Frame(Frame),
     Number(f64),
 }
@@ -35,19 +59,20 @@ impl From<IOError> for EngineError {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Expression -> bytecode compiler (used for filter() bodies)
-// ─────────────────────────────────────────────────────────────────────────
-
-fn compile_expr(expr: &Expr, params: &[String]) -> Result<Vec<Instruction>, EngineError> {
+fn compile_expr(
+    expr: &Expr,
+    params: &[String],
+    param_count: usize,
+) -> Result<Vec<Instruction>, EngineError> {
     let mut out = Vec::new();
-    compile_into(expr, params, &mut out)?;
+    compile_into(expr, params, param_count, &mut out)?;
     Ok(out)
 }
 
 fn compile_into(
     expr: &Expr,
     params: &[String],
+    param_count: usize,
     out: &mut Vec<Instruction>,
 ) -> Result<(), EngineError> {
     match expr {
@@ -65,7 +90,11 @@ fn compile_into(
             "height" => out.push(Instruction::LoadHeight),
             other => {
                 if let Some(idx) = params.iter().position(|p| p == other) {
-                    out.push(Instruction::LoadParam(idx));
+                    if idx < param_count {
+                        out.push(Instruction::LoadParam(idx));
+                    } else {
+                        out.push(Instruction::LoadLocal(idx - param_count));
+                    }
                 } else {
                     return Err(EngineError::Compile(format!(
                         "unknown identifier '{other}' in filter body"
@@ -75,13 +104,13 @@ fn compile_into(
         },
 
         Expr::Neg(inner) => {
-            compile_into(inner, params, out)?;
+            compile_into(inner, params, param_count, out)?;
             out.push(Instruction::Neg);
         }
 
         Expr::BinOp { op, lhs, rhs } => {
-            compile_into(lhs, params, out)?;
-            compile_into(rhs, params, out)?;
+            compile_into(lhs, params, param_count, out)?;
+            compile_into(rhs, params, param_count, out)?;
             out.push(match op {
                 BinOp::Add => Instruction::Add,
                 BinOp::Sub => Instruction::Sub,
@@ -98,27 +127,27 @@ fn compile_into(
             // multi-arg builtins handled specially
             match (name.as_str(), args.len()) {
                 ("clamp", 3) => {
-                    compile_into(&args[0], params, out)?;
-                    compile_into(&args[1], params, out)?;
-                    compile_into(&args[2], params, out)?;
+                    compile_into(&args[0], params, param_count, out)?;
+                    compile_into(&args[1], params, param_count, out)?;
+                    compile_into(&args[2], params, param_count, out)?;
                     out.push(Instruction::Clamp);
                     return Ok(());
                 }
                 ("min", 2) => {
-                    compile_into(&args[0], params, out)?;
-                    compile_into(&args[1], params, out)?;
+                    compile_into(&args[0], params, param_count, out)?;
+                    compile_into(&args[1], params, param_count, out)?;
                     out.push(Instruction::Min);
                     return Ok(());
                 }
                 ("max", 2) => {
-                    compile_into(&args[0], params, out)?;
-                    compile_into(&args[1], params, out)?;
+                    compile_into(&args[0], params, param_count, out)?;
+                    compile_into(&args[1], params, param_count, out)?;
                     out.push(Instruction::Max);
                     return Ok(());
                 }
                 ("pow", 2) => {
-                    compile_into(&args[0], params, out)?;
-                    compile_into(&args[1], params, out)?;
+                    compile_into(&args[0], params, param_count, out)?;
+                    compile_into(&args[1], params, param_count, out)?;
                     out.push(Instruction::Pow);
                     return Ok(());
                 }
@@ -132,7 +161,7 @@ fn compile_into(
                     args.len()
                 )));
             }
-            compile_into(&args[0], params, out)?;
+            compile_into(&args[0], params, param_count, out)?;
             out.push(match name.as_str() {
                 "abs" => Instruction::Abs,
                 "sin" => Instruction::Sin,
@@ -167,13 +196,34 @@ pub fn compile_filter_decl(decl: &FilterDecl) -> Result<Filter, EngineError> {
     let mut b_program = Vec::new();
     let mut a_program = Vec::new();
 
-    for ChannelAssign { channel, value } in &decl.body {
-        let program = compile_expr(value, &decl.params)?;
-        match channel {
-            Channel::R => r_program = program,
-            Channel::G => g_program = program,
-            Channel::B => b_program = program,
-            Channel::A => a_program = program,
+    // Track local variables active in this filter's scope.
+    // We clone the filter's input parameters into it so they act like local variables!
+    let mut local_scope = decl.params.clone();
+    let mut local_setup_instructions = Vec::new();
+    let param_count = decl.params.len();
+
+    for statement in &decl.body {
+        match statement {
+            Statement::Let { name, value } => {
+                // 1. Compile the expression for the local variable
+                let mut expr_program = compile_expr(value, &local_scope, param_count)?;
+                local_setup_instructions.append(&mut expr_program);
+                let local_index = local_scope.len() - param_count;
+                local_setup_instructions.push(Instruction::StoreLocal(local_index));
+
+                local_scope.push(name.clone());
+            }
+            Statement::Channel(ChannelAssign { channel, value }) => {
+                // Compile the channel value expression using our updated scope
+                let program = compile_expr(value, &local_scope, param_count)?;
+
+                match channel {
+                    Channel::R => r_program = program,
+                    Channel::G => g_program = program,
+                    Channel::B => b_program = program,
+                    Channel::A => a_program = program,
+                }
+            }
         }
     }
 
@@ -191,6 +241,13 @@ pub fn compile_filter_decl(decl: &FilterDecl) -> Result<Filter, EngineError> {
         a_program = vec![Instruction::LoadA];
     }
 
+    // Prepend the local variable calculations to the channel programs!
+    // Every channel executing needs these locals set up first.
+    r_program = [local_setup_instructions.clone(), r_program].concat();
+    g_program = [local_setup_instructions.clone(), g_program].concat();
+    b_program = [local_setup_instructions.clone(), b_program].concat();
+    a_program = [local_setup_instructions.clone(), a_program].concat();
+
     Ok(Filter {
         name: decl.name.clone(),
         params: decl.params.clone(),
@@ -200,11 +257,6 @@ pub fn compile_filter_decl(decl: &FilterDecl) -> Result<Filter, EngineError> {
         a_program,
     })
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// Kernel matrix compiler: kernel name = [[..],[..],[..]];
-// ─────────────────────────────────────────────────────────────────────────
-
 fn const_number(expr: &Expr) -> Result<f32, EngineError> {
     match expr {
         Expr::Int(v) => Ok(*v as f32),
@@ -257,10 +309,6 @@ pub fn compile_kernel_decl(name: &str, matrix: &Expr) -> Result<Kernel, EngineEr
         divisor,
     })
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// Interpreter
-// ─────────────────────────────────────────────────────────────────────────
 
 pub struct Engine {
     vars: HashMap<String, Value>,
@@ -472,8 +520,6 @@ impl Engine {
         Ok(n as usize)
     }
 
-    // ── Pipe stage -> Operation ────────────────────────────────────────────
-
     fn compile_stage(
         &mut self,
         stage: &crate::parser::PipeStage,
@@ -499,6 +545,25 @@ impl Engine {
                 mask,
             });
         }
+
+        // --- NEW: THE BACKDOOR INTERCEPT ---
+        // If the operation is called "blur" and they actually provided a number argument...
+        if name.as_str() == "blur" && !stage.args.is_empty() {
+            // Read their argument (e.g. blur(15) -> 15.0)
+            let size_f64 = self.eval_number(&stage.args[0])?;
+            // Ensure size is at least 1 so we don't accidentally divide by zero later!
+            let size = size_f64.max(1.0) as usize;
+
+            // Spawn the custom matrix right out of thin air
+            let dynamic_kernel = Kernel::generate_blur("blur", size);
+
+            // Bypass the static dictionary entirely and ship it to the pipeline
+            return Ok(Operation::Convolution {
+                kernel: dynamic_kernel,
+                mask,
+            });
+        }
+        // --- END OF BACKDOOR ---
 
         if let Some(kernel) = self.kernels.get(name.as_str()).cloned() {
             return Ok(Operation::Convolution { kernel, mask });

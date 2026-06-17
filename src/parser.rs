@@ -69,10 +69,16 @@ pub struct ChannelAssign {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Statement {
+    Channel(ChannelAssign),
+    Let { name: String, value: Expr },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct FilterDecl {
     pub name: String,
     pub params: Vec<String>,
-    pub body: Vec<ChannelAssign>,
+    pub body: Vec<Statement>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -281,7 +287,21 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::LeftBrace, "'{'")?;
         let mut body = Vec::new();
         while !self.check(&TokenKind::RightBrace) {
-            body.push(self.parse_channel_assign()?);
+            match self.peek_kind() {
+                TokenKind::Let => {
+                    self.advance();
+                    let name = self.expect_identifier("A variable Name!!")?;
+                    self.expect(TokenKind::Equal, "=");
+                    let value = self.parse_expr()?;
+                    self.expect(TokenKind::SemiColon, "';'")?;
+                    body.push(Statement::Let { name, value });
+                }
+
+                _ => {
+                    let channel_assign = self.parse_channel_assign()?;
+                    body.push(Statement::Channel(channel_assign));
+                }
+            }
         }
         self.expect(TokenKind::RightBrace, "'}'")?;
 

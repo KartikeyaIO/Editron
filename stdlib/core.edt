@@ -78,11 +78,7 @@ filter quantize(levels) {
     b = floor(b * levels / 256) * (256 / levels);
 }
 
-filter bitcrush(bits) {
-    r = floor(r * pow(2, bits) / 256) * (256 / pow(2, bits));
-    g = floor(g * pow(2, bits) / 256) * (256 / pow(2, bits));
-    b = floor(b * pow(2, bits) / 256) * (256 / pow(2, bits));
-}
+
 
 filter clamp_range(min, max) {
     r = clamp(r, min, max);
@@ -148,7 +144,8 @@ filter min_channel() {
 }
 
 filter average_channel() {
-    r = (r + g + b) / 3;
-    g = (r + g + b) / 3;
-    b = (r + g + b) / 3;
+    let value = (r + g + b) / 3;
+    r = value;
+    g = value;
+    b = value;
 }

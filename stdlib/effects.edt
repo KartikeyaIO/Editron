@@ -20,6 +20,18 @@ filter bloom() {
     g = g + 20;
     b = b + 20;
 }
+filter comic() {
+    r = round(r / 32) * 32;
+    g = round(g / 32) * 32;
+    b = round(b / 32) * 32;
+}
+
+
+filter sketch() {
+    r = 255 - r;
+    g = 255 - g;
+    b = 255 - b;
+}
 
 filter cinematic() {
     r = ((r - 128) * 1.4) + 128;
