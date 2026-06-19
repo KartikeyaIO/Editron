@@ -19,7 +19,7 @@ The project is built around a philosophy of **infrastructure over individual fil
 ## Architecture Overview
 
 ### Lexer
-Converts `.edt` source into a flat token stream.
+Converts `.drive` source into a flat token stream.
 
 - Implemented as a single-pass state machine over raw bytes
 - Handles identifiers, numbers (int/float), strings, operators, and keywords
