@@ -1,6 +1,6 @@
 # The Frame Type
 
-The `Frame` type is the core abstraction used for representing and manipulating image data in Editron.
+The `Frame` type is the core abstraction used for representing and manipulating image data in Drive.
 
 It provides a structured, format-aware representation of pixel data and exposes operations for direct pixel-level control.
 
@@ -213,4 +213,4 @@ The `Frame` type provides:
 - Format-aware operations
 - A consistent interface for image processing
 
-It serves as the foundation for all visual processing in Editron.
+It serves as the foundation for all visual processing in Drive.

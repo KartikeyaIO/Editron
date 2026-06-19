@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::filter::{Filter, Instruction};
+use crate::filter::{Filter,Effect, Instruction};
 use crate::io::io::{self, IOError};
 use crate::io::video_io::{Video, VideoEncoder};
 use crate::media::frame::Frame;
 use crate::parser::{
-    BinOp, Channel, ChannelAssign, Expr, FilterDecl, Import, Item, Program, Statement,
+    BinOp, Channel, ChannelAssign, Expr,EffectDecl, FilterDecl, Import, Item, Program, Statement,
 };
 use crate::pipeline::kernel::Kernel;
 use crate::pipeline::pipeline::{EffectPipeline, Operation, Pipeline, PipelineError};
@@ -208,6 +208,7 @@ pub fn compile_filter_decl(decl: &FilterDecl) -> Result<Filter, EngineError> {
     let mut g_program = Vec::new();
     let mut b_program = Vec::new();
     let mut a_program = Vec::new();
+    
 
     // Track local variables active in this filter's scope.
     // We clone the filter's input parameters into it so they act like local variables!
@@ -235,6 +236,7 @@ pub fn compile_filter_decl(decl: &FilterDecl) -> Result<Filter, EngineError> {
                     Channel::G => g_program = program,
                     Channel::B => b_program = program,
                     Channel::A => a_program = program,
+                    _ => {}
                 }
             }
         }
@@ -268,6 +270,82 @@ pub fn compile_filter_decl(decl: &FilterDecl) -> Result<Filter, EngineError> {
         g_program,
         b_program,
         a_program,
+    })
+}
+pub fn compile_effect_decl(decl: &EffectDecl) -> Result<Effect, EngineError> {
+    let mut r_program = Vec::new();
+    let mut g_program = Vec::new();
+    let mut b_program = Vec::new();
+    let mut a_program = Vec::new();
+    let mut t_program = Vec::new();
+    
+
+    // Track local variables active in this filter's scope.
+    // We clone the filter's input parameters into it so they act like local variables!
+    let mut local_scope = decl.params.clone();
+    let mut local_setup_instructions = Vec::new();
+    let param_count = decl.params.len();
+
+    for statement in &decl.body {
+        match statement {
+            Statement::Let { name, value } => {
+                // 1. Compile the expression for the local variable
+                let mut expr_program = compile_expr(value, &local_scope, param_count)?;
+                local_setup_instructions.append(&mut expr_program);
+                let local_index = local_scope.len() - param_count;
+                local_setup_instructions.push(Instruction::StoreLocal(local_index));
+
+                local_scope.push(name.clone());
+            }
+            Statement::Channel(ChannelAssign { channel, value }) => {
+                // Compile the channel value expression using our updated scope
+                let program = compile_expr(value, &local_scope, param_count)?;
+
+                match channel {
+                    Channel::R => r_program = program,
+                    Channel::G => g_program = program,
+                    Channel::B => b_program = program,
+                    Channel::A => a_program = program,
+                    Channel::T => t_program = program,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    // Channels left unassigned pass through unchanged.
+    if r_program.is_empty() {
+        r_program = vec![Instruction::LoadR];
+    }
+    if g_program.is_empty() {
+        g_program = vec![Instruction::LoadG];
+    }
+    if b_program.is_empty() {
+        b_program = vec![Instruction::LoadB];
+    }
+    if a_program.is_empty() {
+        a_program = vec![Instruction::LoadA];
+    }
+    if t_program.is_empty() {
+        t_program = vec![Instruction::LoadT];
+    }
+
+    // Prepend the local variable calculations to the channel programs!
+    // Every channel executing needs these locals set up first.
+    r_program = [local_setup_instructions.clone(), r_program].concat();
+    g_program = [local_setup_instructions.clone(), g_program].concat();
+    b_program = [local_setup_instructions.clone(), b_program].concat();
+    a_program = [local_setup_instructions.clone(), a_program].concat();
+    t_program = [local_setup_instructions.clone(), t_program].concat();
+
+    Ok(Effect {
+        name: decl.name.clone(),
+        params: decl.params.clone(),
+        r_program,
+        g_program,
+        b_program,
+        a_program,
+        t_program,
     })
 }
 fn const_number(expr: &Expr) -> Result<f32, EngineError> {
@@ -328,6 +406,7 @@ pub struct Engine {
     filters: HashMap<String, Filter>,
     kernels: HashMap<String, Kernel>,
     imported_files: HashSet<String>,
+    effects: HashMap<String, Effect>,
 }
 
 impl Engine {
@@ -336,6 +415,7 @@ impl Engine {
             vars: HashMap::new(),
             filters: HashMap::new(),
             kernels: HashMap::new(),
+            effects: HashMap::new(),
             imported_files: HashSet::new(),
         }
     }
@@ -378,7 +458,7 @@ impl Engine {
                         std_path
                             .push_str(&path.iter().skip(1).cloned().collect::<Vec<_>>().join("/"));
 
-                        std_path.push_str(".edt");
+                        std_path.push_str(".drive");
 
                         self.import_file(&std_path)?;
                     }
@@ -390,6 +470,11 @@ impl Engine {
             Item::FilterDecl(decl) => {
                 let filter = compile_filter_decl(decl)?;
                 self.filters.insert(decl.name.clone(), filter);
+                Ok(())
+            }
+            Item::EffectDecl(decl) => {
+                let effect = compile_effect_decl(decl)?;
+                self.effects.insert(decl.name.clone(),effect);
                 Ok(())
             }
             Item::Print { args } => {

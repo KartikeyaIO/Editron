@@ -11,7 +11,7 @@ pub struct Token {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
-    /// TokenKind enum stores the kind of tokens implimented in Editron
+    /// TokenKind enum stores the kind of tokens implimented in Drive
     Identifier,
     Let,
     Import,
@@ -29,6 +29,7 @@ pub enum TokenKind {
     NotEqual,
     GreaterEqual,
     LessEqual,
+    Effect,
     And,
     Or,
     Not,
@@ -119,6 +120,7 @@ fn identify_token(s: &str) -> TokenKind {
         "not" => TokenKind::Not,
         "let" => TokenKind::Let,
         "print" => TokenKind::Print,
+        "effect" => TokenKind::Effect,
         _ => TokenKind::Identifier,
     }
 }

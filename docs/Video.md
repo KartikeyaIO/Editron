@@ -1,12 +1,12 @@
 # Video
 
-The `Video` type provides an interface for decoding and processing video streams in Editron.
+The `Video` type provides an interface for decoding and processing video streams in Drive.
 It is responsible for extracting frames, handling timestamps, and interfacing with the decoding backend.
 
 ## Overview
 
 The `Video` type wraps a media container and exposes frame-level access.
-It uses FFmpeg as a backend for decoding and converts decoded frames into Editron's internal `Frame` representation.
+It uses FFmpeg as a backend for decoding and converts decoded frames into Drive's internal `Frame` representation.
 
 ## Structure
 
@@ -57,14 +57,14 @@ Seeks to the nearest keyframe at or before the target timestamp, then decodes fo
 
 ## Frame Conversion
 
-Decoded frames are converted into Editron's internal format:
+Decoded frames are converted into Drive's internal format:
 
 - Source format → RGBA
 - Uses FFmpeg scaling context
 - Removes stride padding
 - Converts interleaved data into planar format
 
-The resulting `Frame` is compatible with all Editron processing operations.
+The resulting `Frame` is compatible with all Drive processing operations.
 
 ## Timestamp Handling
 
@@ -179,4 +179,4 @@ Errors are represented using `IOError`:
 
 ## Summary
 
-The `Video` type provides controlled access to video data and integrates external decoding with Editron's internal processing pipeline.
+The `Video` type provides controlled access to video data and integrates external decoding with Drive's internal processing pipeline.

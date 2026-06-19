@@ -1,6 +1,6 @@
-# Editron
+# Drive
 
-Editron is an experimental media processing engine and domain-specific language for building composable, declarative media pipelines.
+Drive is an experimental media processing engine and domain-specific language for building composable, declarative media pipelines.
 
 The project is built around a philosophy of **infrastructure over individual filters** — new processing operations should require only new DSL expressions, never new Rust code.
 
@@ -146,7 +146,7 @@ Encodes a sequence of `Frame`s (and optionally a `Track`) into a container file.
 
 ## DSL
 
-Editron's DSL is the primary interface for defining pipelines. Filters and kernels declared in `.edt` files are the only extension point — no Rust changes are needed to add new processing operations.
+Drive's DSL is the primary interface for defining pipelines. Filters and kernels declared in `.edt` files are the only extension point — no Rust changes are needed to add new processing operations.
 
 ### Syntax
 

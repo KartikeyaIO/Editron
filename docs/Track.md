@@ -1,6 +1,6 @@
 # The Track Type
 
-The `Track` type represents decoded audio data in Editron.
+The `Track` type represents decoded audio data in Drive.
 
 It provides a structured abstraction over audio samples and supports basic operations such as gain, mixing, normalization, and format conversion.
 
@@ -154,4 +154,4 @@ The `Track` type provides:
 - Floating-point processing for precision
 - Basic operations for audio manipulation
 
-It serves as the core abstraction for audio processing in Editron.
+It serves as the core abstraction for audio processing in Drive.

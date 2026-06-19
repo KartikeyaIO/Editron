@@ -182,4 +182,4 @@ The lexer provides:
 - Deterministic behavior via explicit state transitions
 - Basic error handling for malformed input
 
-It serves as the first stage of the Editron DSL pipeline.
+It serves as the first stage of the Drive DSL pipeline.

@@ -1,11 +1,11 @@
 [package]
-name = "editron_v1"
+name = "drive_v1"
 version = "0.2.0"
 edition = "2024"
 
 [lib]
 crate-type = ["cdylib","rlib"]
-name = "editron"
+name = "drive"
 path = "src/lib.rs"
 
 [dependencies]

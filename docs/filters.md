@@ -1,6 +1,6 @@
 ## Filter System
 
-Filters in Editron are modular image-processing units that transform a `Frame`.
+Filters in Drive are modular image-processing units that transform a `Frame`.
 
 The system is built around a simple trait abstraction that allows new filters to be implemented consistently.
 
@@ -128,7 +128,7 @@ Edge handling is performed using coordinate clamping.
 
 ## Summary
 
-The filter system in Editron provides:
+The filter system in Drive provides:
 
 - A clean abstraction layer
 - Extensible processing pipeline

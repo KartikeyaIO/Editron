@@ -69,6 +69,7 @@ pub enum Channel {
     G,
     B,
     A,
+    T,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -91,10 +92,18 @@ pub struct FilterDecl {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct EffectDecl{
+    pub name: String,
+    pub params: Vec<String>,
+    pub body: Vec<Statement>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Import(Import),
     Print { args: Vec<Expr> },
     Assign { name: String, value: Expr },
+    EffectDecl(EffectDecl),
     FilterDecl(FilterDecl),
     // NEW: Kernel Declaration, e.g., kernel blur = [[1.0, 2.0], [3.0, 4.0]];
     KernelDecl { name: String, matrix: Expr },
@@ -128,6 +137,10 @@ pub enum ParseError {
         name: String,
         line: usize,
     },
+    TimeError{
+        message: String,
+        line: usize,
+    }
 }
 
 impl std::fmt::Display for ParseError {
@@ -149,6 +162,9 @@ impl std::fmt::Display for ParseError {
                     f,
                     "line {line}: '{name}' is not a valid channel (expected r, g, b, or a)"
                 )
+            }
+            ParseError::TimeError { message, line } => {
+                write!(f,"line {line}: {message}")
             }
         }
     }
@@ -317,7 +333,7 @@ impl<'a> Parser<'a> {
                 }
 
                 _ => {
-                    let channel_assign = self.parse_channel_assign()?;
+                    let channel_assign = self.parse_channel_assign("filter")?;
                     body.push(Statement::Channel(channel_assign));
                 }
             }
@@ -325,6 +341,46 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::RightBrace, "'}'")?;
 
         Ok(Item::FilterDecl(FilterDecl { name, params, body }))
+    }
+    // Effect Declarations...
+    fn parse_effect_decl(&mut self) -> PResult<Item> {
+        self.expect(TokenKind::Effect, "'effect'")?;
+        let name = self.expect_identifier("an effect name")?;
+
+        self.expect(TokenKind::LeftParen, "'('")?;
+        let mut params = Vec::new();
+        if !self.check(&TokenKind::RightParen) {
+            loop {
+                params.push(self.expect_identifier("a parameter name")?);
+                if self.check(&TokenKind::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+        self.expect(TokenKind::RightParen, "')'")?;
+
+        self.expect(TokenKind::LeftBrace, "'{'")?;
+        let mut body = Vec::new();
+        while !self.check(&TokenKind::RightBrace) {
+            match self.peek_kind() {
+                TokenKind::Let => {
+                    self.advance();
+                    let name = self.expect_identifier("A variable Name!!")?;
+                    self.expect(TokenKind::Equal, "=");
+                    let value = self.parse_expr()?;
+                    self.expect(TokenKind::SemiColon, "';'")?;
+                    body.push(Statement::Let { name, value });
+                }
+
+                _ => {
+                    let channel_assign = self.parse_channel_assign("effect")?;
+                    body.push(Statement::Channel(channel_assign));
+                }
+            }
+        }
+        Ok(Item::EffectDecl(EffectDecl { name, params, body }))
     }
 
     // NEW: Parse Kernel block -> kernel blur = [[1, 2, 1], [2, 4, 2], [1, 2, 1]];
@@ -338,7 +394,7 @@ impl<'a> Parser<'a> {
         Ok(Item::KernelDecl { name, matrix })
     }
 
-    fn parse_channel_assign(&mut self) -> PResult<ChannelAssign> {
+    fn parse_channel_assign(&mut self, caller: &str) -> PResult<ChannelAssign> {
         let tok = self.peek().clone();
         let name = self.expect_identifier("a channel name (r, g, b, or a)")?;
         let channel = match name.as_str() {
@@ -346,6 +402,17 @@ impl<'a> Parser<'a> {
             "g" => Channel::G,
             "b" => Channel::B,
             "a" => Channel::A,
+            "t" => {
+                if caller == "effect" {
+                    Channel::T
+                }
+                else {
+                    return Err(ParseError::TimeError{
+                        message: "Time Based operations are not applicable on 'filter' trying using 'effect'".to_string(),
+                        line: tok.line,
+                    })
+                }
+            },
             _ => {
                 return Err(ParseError::InvalidChannel {
                     name,

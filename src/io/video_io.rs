@@ -321,7 +321,7 @@ impl Video {
         Ok(false)
     }
 
-    /// Convert an FFmpeg video frame to Editron's planar RGBA `Frame`.
+    /// Convert an FFmpeg video frame to Drive's planar RGBA `Frame`.
     /// Stride padding is stripped here — `Frame` always holds exactly
     /// `width * height` samples per channel, no padding.
     fn convert_to_frame(&self, src: &ffmpeg::util::frame::Video) -> Result<Frame, IOError> {

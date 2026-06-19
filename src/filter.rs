@@ -14,6 +14,19 @@ pub struct Filter {
     pub a_program: Vec<Instruction>,
 }
 
+pub struct Effect {
+    pub name: String,
+
+    // Parameter names in declaration order
+    pub params: Vec<String>,
+
+    // Compiled programs
+    pub r_program: Vec<Instruction>,
+    pub g_program: Vec<Instruction>,
+    pub b_program: Vec<Instruction>,
+    pub a_program: Vec<Instruction>,
+    pub t_program : Vec<Instruction>,
+}
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
     // ─────────────────────────────
@@ -23,6 +36,7 @@ pub enum Instruction {
     LoadG,
     LoadB,
     LoadA,
+    LoadT,
 
     // ─────────────────────────────
     // Filter Parameters
@@ -166,6 +180,7 @@ impl FilterVM {
 
                     self.push(alpha as f32);
                 }
+                Instruction::LoadT => {}
 
                 // -------------------------
                 // PARAMS
