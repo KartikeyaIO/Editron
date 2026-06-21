@@ -1,17 +1,17 @@
-
 import std::mask;
+import std::color;
+import std::core;
+import std::effects;
+import std::vision;
 import std::advanced;
 
-frame1 = load("test_inputs/image_bw.webp");
-print("Frame{} loaded successfully",1);
-frame2 = blank(1920,1080);
-print("Blank frame declarations was successful!");
 
-frame3 = frame1 -> chroma_key(128,128,128,35);
-print("Filter application on Frame1 was successful!!");
+frame = load("input_image.jpg");
+edited_frame = frame -> cyanotype()
+                     -> cinematic()
+                     -> threshold(120)
+                     -> hdr2(1.15)
+                     -> soft_blur(25);
 
-                
-                         
-            
-export(frame3, "Outputs/image2.png");
-print("Export of image was successful!!");
+export(edited_frame, "Outputs/output.png");
+print("The Code was executed Successfully");

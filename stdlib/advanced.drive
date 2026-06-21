@@ -108,3 +108,25 @@ filter depth_fog(fog_r, fog_g, fog_b) {
     g = (g * (1.0 - depth_factor)) + (fog_g * depth_factor);
     b = (b * (1.0 - depth_factor)) + (fog_b * depth_factor);
 }
+
+
+// Simulates a digital glitch by cutting horizontal slices and flipping channels
+filter cyberpunk_glitch(frequency, intensity) {
+    // Create pseudo-random moving bands using floor and y coordinates
+    let band = floor(y / frequency);
+    let is_glitch_row = (band - floor(band / 7) * 7) == 3; // Modulo 7 hack
+    
+    // If it's a glitch row, heavily boost neon pink/cyan and invert slightly
+    let glitch_r = 255 - r;
+    let glitch_g = g * 0.3;
+    let glitch_b = 255 - b;
+    
+    // Apply based on intensity and row condition
+    r = (is_glitch_row * intensity * glitch_r) + ((not (is_glitch_row * intensity)) * r);
+    g = (is_glitch_row * intensity * glitch_g) + ((not (is_glitch_row * intensity)) * g);
+    b = (is_glitch_row * intensity * glitch_b) + ((not (is_glitch_row * intensity)) * b);
+    
+    r = clamp(r, 0, 255);
+    g = clamp(g, 0, 255);
+    b = clamp(b, 0, 255);
+}

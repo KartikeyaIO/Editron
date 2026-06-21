@@ -70,3 +70,26 @@ filter ink() {
     g = ((r + g + b) / 3 ) * 255;
     b = ((r + g + b) / 3 ) * 255;
 }
+// Blends a neon retro pink-to-purple radial gradient from the center
+filter vaporwave_horizon(glow_strength) {
+    let cx = width / 2;
+    let cy = height / 2;
+    
+    let dx = x - cx;
+    let dy = y - cy;
+    let dist = sqrt((dx * dx) + (dy * dy));
+    let max_dist = sqrt((cx * cx) + (cy * cy));
+    
+    // Normalize distance from center (0.0 at center, 1.0 at corners)
+    let norm_dist = dist / max_dist;
+    
+    // Neon Pink at center, Deep Blue/Purple at edges
+    let neon_r = 255 * (1.0 - norm_dist);
+    let neon_g = 20 * norm_dist;
+    let neon_b = 180 * (0.5 + norm_dist * 0.5);
+    
+    // Blend it back into original pixels using glow_strength
+    r = clamp((r * (1.0 - glow_strength)) + (neon_r * glow_strength), 0, 255);
+    g = clamp((g * (1.0 - glow_strength)) + (neon_g * glow_strength), 0, 255);
+    b = clamp((b * (1.0 - glow_strength)) + (neon_b * glow_strength), 0, 255);
+}
