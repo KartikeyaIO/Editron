@@ -213,6 +213,9 @@ impl Track {
     }
 }
 impl Track {
+    pub fn buffer_mut(&mut self) -> &mut [AudioFrame] {
+        &mut self.buffer
+    }
     pub fn duration(&self) -> TimeStamp {
         let Some(last) = self.buffer.last() else {
             return TimeStamp::default();

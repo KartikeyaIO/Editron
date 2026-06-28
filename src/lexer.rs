@@ -36,7 +36,8 @@ pub enum TokenKind {
     Or,
     Not,
     For,
-    Load,
+    LoadTrack,
+    LoadFrame,
     Filter,
     Export,
     LeftBracket,
@@ -114,7 +115,8 @@ pub fn char_to_token(c: char) -> Option<TokenKind> {
 
 fn identify_token(s: &str) -> TokenKind {
     match s {
-        "load" => TokenKind::Load,
+        "frame" => TokenKind::LoadFrame,
+        "track" => TokenKind::LoadTrack,
         "filter" => TokenKind::Filter,
         "export" => TokenKind::Export,
         "import" => TokenKind::Import,

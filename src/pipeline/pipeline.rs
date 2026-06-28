@@ -1,5 +1,5 @@
-use crate::filter::{Filter, FilterVM};
-use crate::media::frame::{Color, Frame, Pos};
+use crate::filter::{Filter,AudioFilter,AudioContext, FilterVM};
+use crate::media::{frame::{Color, Frame, Pos},track::{Track,TrackError}};
 use crate::pipeline::kernel::Kernel;
 use crate::range::Mask;
 
@@ -51,6 +51,52 @@ pub trait Pipeline {
 
 pub struct EffectPipeline {
     pub operations: Vec<Operation>,
+}
+
+pub struct AudioPipeline {
+    pub operations: Vec<AudioOperation>,
+}
+
+pub enum AudioOperation {
+    PointFilter {
+        filter: AudioFilter,
+        params: Vec<f32>,
+    },
+    Gain(f32),
+}
+
+impl AudioPipeline {
+    pub fn execute(&self, track: &mut Track) -> Result<(), PipelineError> {
+        let sr = track.sample_rate() as f32;
+        let mut vm = FilterVM::new();
+
+        for op in &self.operations {
+            match op {
+                AudioOperation::PointFilter { filter, params } => {
+                    for frame in track.buffer_mut() {
+                        let base_time = frame.time.to_seconds() as f32;
+                        let samples_len = frame.data.first().map_or(0, |ch| ch.len());
+                        let dt = 1.0 / sr;
+
+                        for i in 0..samples_len {
+                            let exact_t = base_time + (i as f32 * dt);
+                            let l_in = frame.data[0][i];
+                            let r_in = if frame.data.len() > 1 { frame.data[1][i] } else { l_in };
+
+                            let (l_out, r_out) = filter.apply(l_in, r_in, exact_t, sr, params, &mut vm);
+
+                            frame.data[0][i] = l_out;
+                            if frame.data.len() > 1 {
+                                frame.data[1][i] = r_out;
+                            }
+                        }
+                    }
+                }
+                AudioOperation::Gain(db) => track.gain(*db),
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Pipeline for EffectPipeline {

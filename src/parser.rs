@@ -73,6 +73,7 @@ pub enum Channel {
     B,
     A,
     T,
+    L,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -105,6 +106,13 @@ pub struct FilterDecl {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct AudioFilterDecl {
+    pub name: String,
+    pub params: Vec<String>,
+    pub body: Vec<Statement>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct EffectDecl{
     pub name: String,
     pub params: Vec<String>,
@@ -118,7 +126,7 @@ pub enum Item {
     Assign { name: String, value: Expr },
     //EffectDecl(EffectDecl),
     FilterDecl(FilterDecl),
-    // NEW: Kernel Declaration, e.g., kernel blur = [[1.0, 2.0], [3.0, 4.0]];
+    AudioFilterDecl(AudioFilterDecl),
     KernelDecl { name: String, matrix: Expr },
     Export { value: Expr, path: Expr },
     ForLoop {
@@ -138,9 +146,7 @@ pub struct Program {
     pub items: Vec<Item>,
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Errors
-// ─────────────────────────────────────────────────────────────────────────
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
@@ -273,6 +279,7 @@ impl<'a> Parser<'a> {
         match self.peek_kind() {
             TokenKind::Import => self.parse_import(),
             TokenKind::Filter => self.parse_filter_decl(),
+            TokenKind::AudioFilter => self.parse_audiofilter_decl(),
             TokenKind::Kernel => self.parse_kernel_decl(),
             TokenKind::Export => self.parse_export(),
             TokenKind::Identifier => self.parse_assignment(),
@@ -388,6 +395,37 @@ impl<'a> Parser<'a> {
 
         Ok(Item::FilterDecl(FilterDecl { name, params, body }))
     }
+
+
+    fn parse_audiofilter_decl(&mut self) -> PResult<Item> {
+        self.expect(TokenKind::AudioFilter, "'af'")?;
+        let name = self.expect_identifier("an AudioFilter name")?;
+
+        self.expect(TokenKind::LeftParen, "'('")?;
+        let mut params = Vec::new();
+        if !self.check(&TokenKind::RightParen) {
+            loop {
+                params.push(self.expect_identifier("a parameter name")?);
+                if self.check(&TokenKind::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+        self.expect(TokenKind::RightParen, "')'")?;
+
+        self.expect(TokenKind::LeftBrace, "'{'")?;
+        let mut body = Vec::new();
+        while !self.check(&TokenKind::RightBrace) {
+           body.push(self.parse_statement("af")?);
+        }
+        self.expect(TokenKind::RightBrace, "'}'")?;
+
+        Ok(Item::AudioFilterDecl(AudioFilterDecl { name, params, body }))
+    }
+
+
     // Effect Declarations...
     // fn parse_effect_decl(&mut self) -> PResult<Item> {
     //     self.expect(TokenKind::Effect, "'effect'")?;
@@ -434,26 +472,32 @@ impl<'a> Parser<'a> {
 
     fn parse_channel_assign(&mut self, caller: &str) -> PResult<ChannelAssign> {
         let tok = self.peek().clone();
-        let name = self.expect_identifier("a channel name (r, g, b, or a)")?;
-        let channel = match name.as_str() {
-            "r" => Channel::R,
-            "g" => Channel::G,
-            "b" => Channel::B,
-            "a" => Channel::A,
-            "t" => {
-                if caller == "effect" {
-                    Channel::T
-                }
-                else {
-                    return Err(ParseError::TimeError{
-                        message: "Time Based operations are not applicable on 'filter' trying using 'effect'".to_string(),
-                        line: tok.line,
-                    })
-                }
-            },
-            _ => {
+        let name = self.expect_identifier("a channel name")?;
+        
+        // 🚨 STRICT CHANNEL BOUNCER 🚨
+        let channel = match (caller, name.as_str()) {
+            ("af", "l") => Channel::L,
+            ("af", "r") => Channel::R, // 'r' plays double-agent: Right channel
+            ("af", illegal) => {
                 return Err(ParseError::InvalidChannel {
-                    name,
+                    name: format!("'{illegal}' is not allowed inside audio filters..."),
+                    line: tok.line,
+                });
+            }
+            (_, "r") => Channel::R,
+            (_, "g") => Channel::G,
+            (_, "b") => Channel::B,
+            (_, "a") => Channel::A,
+            ("effect", "t") => Channel::T,
+            ("filter", "t") => {
+                return Err(ParseError::TimeError {
+                    message: "Time-based operations ('t') are not allowed in 'filter'. Try using 'effect'.".to_string(),
+                    line: tok.line,
+                });
+            }
+            (_, invalid) => {
+                return Err(ParseError::InvalidChannel {
+                    name: invalid.to_string(),
                     line: tok.line,
                 });
             }
@@ -748,13 +792,23 @@ impl<'a> Parser<'a> {
                 self.expect(TokenKind::RightBracket, "']'")?;
                 Ok(Expr::Array(elements))
             }
-            TokenKind::Load => {
+            TokenKind::LoadFrame => {
                 self.advance();
-                self.expect(TokenKind::LeftParen, "'(' after 'load'")?;
+                self.expect(TokenKind::LeftParen, "'(' after 'frame'")?;
                 let args = self.parse_arg_list()?;
                 self.expect(TokenKind::RightParen, "')'")?;
                 Ok(Expr::Call {
-                    path: vec!["load".to_string()],
+                    path: vec!["frame".to_string()],
+                    args,
+                })
+            }
+            TokenKind::LoadTrack => {
+                self.advance();
+                self.expect(TokenKind::LeftParen, "'(' after 'track'")?;
+                let args = self.parse_arg_list()?;
+                self.expect(TokenKind::RightParen, "')'")?;
+                Ok(Expr::Call {
+                    path: vec!["track".to_string()],
                     args,
                 })
             }

@@ -14,6 +14,14 @@ pub struct Filter {
     pub a_program: Vec<Instruction>,
 }
 
+#[derive(Debug, Clone)]
+pub struct AudioFilter {
+    pub name: String,
+    pub params: Vec<String>,
+    pub l_program: Vec<Instruction>,
+    pub r_program: Vec<Instruction>,
+}
+
 pub struct Effect {
     pub name: String,
 
@@ -84,6 +92,9 @@ pub enum Instruction {
     Ge,
     Lt,
     Le,
+    LoadL,           // <-- NEW: Left audio channel
+    LoadTime,        // <-- NEW: Time in seconds (f64 -> f32)
+    LoadSampleRate,
 
     // ─────────────────────────────
     // Logic
@@ -137,9 +148,21 @@ pub struct PixelContext {
     pub height: u32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct AudioContext {
+    pub l: f32,
+    pub r: f32,
+    pub time: f32,
+    pub sample_rate: f32,
+}
+
 pub struct FilterVM {
     stack: Vec<f32>,
     locals: Vec<f32>,
+}
+enum VMContext<'a> {
+    Pixel(&'a PixelContext),
+    Audio(&'a AudioContext),
 }
 
 impl FilterVM {
@@ -157,7 +180,7 @@ impl FilterVM {
     fn push(&mut self, value: f32) {
         self.stack.push(value);
     }
-    fn run_program(&mut self, program: &[Instruction], ctx: &PixelContext, params: &[f32]) {
+    fn run_program(&mut self, program: &[Instruction], ctx: &VMContext, params: &[f32]) {
         let mut ip = 0;
         while ip< program.len() {
             let instruction = &program[ip];
@@ -174,48 +197,59 @@ impl FilterVM {
                     }
                 }
                 
-                Instruction::LoadR => {
-                    self.push(ctx.color.r() as f32);
-                }
+                Instruction::LoadR => match ctx {
+                    VMContext::Pixel(p) => self.push(p.color.r() as f32),
+                    VMContext::Audio(a) => self.push(a.r),
+                },
+                Instruction::LoadG => match ctx {
+                    VMContext::Pixel(p) => self.push(p.color.g() as f32),
+                    _ => self.push(0.0),
+                },
+                Instruction::LoadB => match ctx {
+                    VMContext::Pixel(p) => self.push(p.color.b() as f32),
+                    _ => self.push(0.0),
+                },
+                Instruction::LoadA => match ctx {
+                    VMContext::Pixel(p) => {
+                        let a = match p.color { Color::RGBA(.., a) => a, _ => 255 };
+                        self.push(a as f32);
+                    }
+                    _ => self.push(1.0),
+                },
+                Instruction::LoadL => match ctx {
+                    VMContext::Audio(a) => self.push(a.l),
+                    _ => self.push(0.0),
+                },
+                Instruction::LoadTime => match ctx {
+                    VMContext::Audio(a) => self.push(a.time),
+                    _ => self.push(0.0),
+                },
+                Instruction::LoadSampleRate => match ctx {
+                    VMContext::Audio(a) => self.push(a.sample_rate),
+                    _ => self.push(0.0),
+                },
+                Instruction::LoadX => match ctx {
+                    VMContext::Pixel(p) => self.push(p.x as f32),
+                    _ => self.push(0.0),
+                },
+                Instruction::LoadY => match ctx {
+                    VMContext::Pixel(p) => self.push(p.y as f32),
+                    _ => self.push(0.0),
+                },
+                Instruction::LoadWidth => match ctx {
+                    VMContext::Pixel(p) => self.push(p.width as f32),
+                    _ => self.push(0.0),
+                },
+                Instruction::LoadHeight => match ctx {
+                    VMContext::Pixel(p) => self.push(p.height as f32),
+                    _ => self.push(0.0),
+                },
 
-                Instruction::LoadG => {
-                    self.push(ctx.color.g() as f32);
-                }
-
-                Instruction::LoadB => {
-                    self.push(ctx.color.b() as f32);
-                }
-
-                Instruction::LoadA => {
-                    let alpha = match ctx.color {
-                        Color::RGBA(_, _, _, a) => a,
-                        _ => 255,
-                    };
-
-                    self.push(alpha as f32);
-                }
                 Instruction::LoadT => {}
 
                 
                 Instruction::LoadParam(index) => {
                     self.push(params.get(*index).copied().unwrap_or(0.0));
-                }
-
-                
-                Instruction::LoadX => {
-                    self.push(ctx.x as f32);
-                }
-
-                Instruction::LoadY => {
-                    self.push(ctx.y as f32);
-                }
-
-                Instruction::LoadWidth => {
-                    self.push(ctx.width as f32);
-                }
-
-                Instruction::LoadHeight => {
-                    self.push(ctx.height as f32);
                 }
 
                 
@@ -477,10 +511,13 @@ impl FilterVM {
 
     pub fn execute(&mut self, program: &[Instruction], ctx: &PixelContext, params: &[f32]) -> f32 {
         self.stack.clear();
-        self.run_program(program, ctx, params);
+        self.run_program(program, &VMContext::Pixel(ctx), params);
+        self.pop()
+    }
 
-        
-
+    pub fn execute_audio(&mut self, program: &[Instruction], ctx: &AudioContext, params: &[f32]) -> f32 {
+        self.stack.clear();
+        self.run_program(program, &VMContext::Audio(ctx), params);
         self.pop()
     }
 }
@@ -521,5 +558,15 @@ impl Filter {
 
             Color::Gray(_) => Color::Gray(r).to_rgba(),
         }
+    }
+}
+
+impl AudioFilter {
+    pub fn apply(&self, l: f32, r: f32, time: f32, sr: f32, params: &[f32], vm: &mut FilterVM) -> (f32, f32) {
+        let ctx = AudioContext { l, r, time, sample_rate: sr };
+        (
+            vm.execute_audio(&self.l_program, &ctx, params),
+            vm.execute_audio(&self.r_program, &ctx, params),
+        )
     }
 }

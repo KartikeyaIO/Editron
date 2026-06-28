@@ -14,3 +14,4 @@ pub mod parser;
 pub mod pipeline;
 pub mod range;
 pub mod text;
+pub mod cli;
