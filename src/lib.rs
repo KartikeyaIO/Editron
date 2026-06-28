@@ -2,7 +2,7 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod engine;
-pub mod experiments;
+
 pub mod filter;
 pub mod io;
 #[cfg(not(target_arch = "wasm32"))]
