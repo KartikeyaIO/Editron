@@ -1,17 +1,19 @@
 
-
+// Uniform Averaging Blur
 kernel box_blur = [
 [1,1,1],
 [1,1,1],
 [1,1,1]
 ];
 
+// weighted blur, nearby pixels have more effect
 kernel gaussian_blur = [
 [1,2,1],
 [2,4,2],
 [1,2,1]
 ];
 
+// weaker blur
 kernel soft_blur = [
 [1,1,1],
 [1,2,1],
@@ -19,38 +21,43 @@ kernel soft_blur = [
 ];
 
 
-
+// Sharpening Kernel
 kernel sharpen = [
 [0,-1,0],
 [-1,5,-1],
 [0,-1,0]
 ];
 
+// Stronger than sharpen
 kernel giga_sharpen = [
 [0,-2,0],
 [-2,9,-2],
 [0,-2,0]
 ];
 
+// Agressive sharpening
 kernel ultra_sharpen = [
 [-1,-1,-1],
 [-1,13,-1],
 [-1,-1,-1]
 ];
 
-
+// Laplacian Edge Detection
 kernel edge = [
 [-1,-1,-1],
 [-1,8,-1],
 [-1,-1,-1]
 ];
 
+
+// Detects only major Edges
 kernel edge_soft = [
 [0,-1,0],
 [-1,4,-1],
 [0,-1,0]
 ];
 
+// Very sensitive Edge detection
 kernel edge_strong = [
 [-2,-2,-2],
 [-2,16,-2],
@@ -58,13 +65,14 @@ kernel edge_strong = [
 ];
 
 
-
+// Creates a raised 3-D appearance
 kernel emboss = [
 [-2,-1,0],
 [-1,1,1],
 [0,1,2]
 ];
 
+// reverse lighting direction
 kernel emboss_reverse = [
 [2,1,0],
 [1,1,-1],
@@ -72,7 +80,7 @@ kernel emboss_reverse = [
 ];
 
 
-
+// Enhances outline while preserving image information
 kernel outline = [
 [-1,-1,-1],
 [-1,9,-1],
@@ -80,7 +88,7 @@ kernel outline = [
 ];
 
 
-
+// simulates horizontal camera movement
 kernel motion_horizontal = [
 [0,0,0,0,0],
 [0,0,0,0,0],
@@ -89,6 +97,7 @@ kernel motion_horizontal = [
 [0,0,0,0,0]
 ];
 
+// simulates vertical camera movement
 kernel motion_vertical = [
 [0,0,1,0,0],
 [0,0,1,0,0],
@@ -97,13 +106,15 @@ kernel motion_vertical = [
 [0,0,1,0,0]
 ];
 
-
+// Produces thick dark outline
 kernel cartoon_edge = [
 [1,1,1],
 [1,-8,1],
 [1,1,1]
 ];
 
+
+// sharpening with Additional Edge Emphasis
 kernel high_contrast = [
 [0,-1,0],
 [-1,6,-1],
@@ -111,15 +122,52 @@ kernel high_contrast = [
 ];
 
 
-
+// sharpening focused on horizontal and vertical direction
 kernel cross_sharpen = [
 [0,-1,0],
 [-1,7,-1],
 [0,-1,0]
 ];
 
+// Cross-shaped Edge Detection
 kernel crystal = [
 [-1,0,-1],
 [0,8,0],
 [-1,0,-1]
 ];
+
+// produces ridge like features
+kernel ridge = [
+[-1,-1,-1],
+[-1,9,-1],
+[-1,-1,-1]
+];
+
+// detects vertical edges
+kernel sobel_x = [
+[-1,0,1],
+[-2,0,2],
+[-1,0,1]
+];
+
+// detects horizotal edges
+kernel sobel_y = [
+[-1,-2,-1],
+[0,0,0],
+[1,2,1]
+];
+
+// Highlights Horizontal Structures
+kernel line_horizontal = [
+[-1,-1,-1],
+[2,2,2],
+[-1,-1,-1]
+];
+
+// Highlights Vertical Structures
+kernel line_vertical = [
+[-1,2,-1],
+[-1,2,-1],
+[-1,2,-1]
+];
+

@@ -1,51 +1,59 @@
+// changes the brightness of the pixel
 filter brightness(amount) {
     r = r + amount;
     g = g + amount;
     b = b + amount;
 }
 
+// changes contrast of the pixel
 filter contrast(factor) {
     r = ((r - 128) * factor) + 128;
     g = ((g - 128) * factor) + 128;
     b = ((b - 128) * factor) + 128;
 }
 
+// Intensity amplification
 filter gain(amount) {
     r = r * amount;
     g = g * amount;
     b = b * amount;
 }
 
-filter bias(amount) {
-    r = r + amount;
-    g = g + amount;
-    b = b + amount;
-}
 
+
+// Color Inversion
 filter invert() {
     r = 255 - r;
     g = 255 - g;
     b = 255 - b;
 }
 
+
+// Converts the Image to grayscale
 filter grayscale() {
-    r = (r + g + b) / 3;
-    g = (r + g + b) / 3;
-    b = (r + g + b) / 3;
+    let factor = (r + g + b) / 3
+    r = factor;
+    g = factor;
+    b = factor / 3;
 }
 
+
+// Intensifies red
 filter red_gain(amount) {
     r = r * amount;
 }
 
+// intensifies green
 filter green_gain(amount) {
     g = g * amount;
 }
 
+// Intensifies Blue
 filter blue_gain(amount) {
     b = b * amount;
 }
 
+// channel separation ------------------------------------------
 filter red_only() {
     g = 0;
     b = 0;
@@ -68,10 +76,10 @@ filter alpha(value) {
 filter opacity(amount) {
     a = a * amount;
 }
+//----------------------------------------------------------------
 
 
-
-
+// Reduces the number of colors in a image, the levels decide how many colors are permitted
 filter quantize(levels) {
     r = floor(r * levels / 256) * (256 / levels);
     g = floor(g * levels / 256) * (256 / levels);
@@ -79,7 +87,7 @@ filter quantize(levels) {
 }
 
 
-
+// clamps ----------------------------------------------------------
 filter clamp_range(min, max) {
     r = clamp(r, min, max);
     g = clamp(g, min, max);
@@ -97,7 +105,9 @@ filter clamp_high(maxv) {
     g = min(g, maxv);
     b = min(b, maxv);
 }
+// ---------------------------------------------------------------------
 
+// Non-linear Brightness change
 filter gamma(value) {
     r = pow(r / 255.0, value) * 255;
     g = pow(g / 255.0, value) * 255;
@@ -116,20 +126,7 @@ filter mask_black() {
     b = 0;
 }
 
-filter keep_red() {
-    g = 0;
-    b = 0;
-}
-
-filter keep_green() {
-    r = 0;
-    b = 0;
-}
-
-filter keep_blue() {
-    r = 0;
-    g = 0;
-}
+// min and max channel ----------------------------------
 
 filter max_channel() {
     r = max(r, max(g, b));
@@ -143,9 +140,16 @@ filter min_channel() {
     b = min(r, min(g, b));
 }
 
-filter average_channel() {
-    let value = (r + g + b) / 3;
-    r = value;
-    g = value;
-    b = value;
+// Alpha channel Effects ----------------------------------
+filter fade(amount) {
+    a = a * amount;
 }
+
+filter opaque() {
+    a = 255;
+}
+
+filter transparent() {
+    a = 0;
+}
+

@@ -1,0 +1,228 @@
+
+//
+// Built-in Variables:
+//
+// l      : Left audio sample
+// r      : Right audio sample
+// time   : Current playback time (seconds)
+// sr     : Sample rate (Hz)
+//
+// Audio samples are expected to be normalized between
+// -1.0 and 1.0.
+
+
+
+
+// Adjusts the volume.
+//
+// amount:
+//      0.0 = silence
+//      1.0 = unchanged
+//      2.0 = double volume
+
+
+af gain(amount) {
+    l = l * amount;
+    r = r * amount;
+}
+
+
+
+// Inverts the phase of both channels.
+// Sounds identical on its own but cancels when mixed with
+// the original.
+
+
+af invert() {
+    l = -l;
+    r = -r;
+}
+
+
+
+// Silences the track.
+
+
+af mute() {
+    l = 0;
+    r = 0;
+}
+
+
+
+
+af mute_left() {
+    l = 0;
+}
+
+
+
+
+af mute_right() {
+    r = 0;
+}
+
+
+
+// Swaps the left and right channels.
+
+af swap() {
+
+    let left = l;
+    let right = r;
+
+    l = right;
+    r = left;
+}
+
+
+
+// Mixes both channels into mono.
+
+af mono() {
+
+    let m = (l + r) / 2;
+
+    l = m;
+    r = m;
+}
+
+
+
+// Copies the left channel into the right.
+
+
+af left_only() {
+    r = l;
+}
+
+
+
+// Copies the right channel into the left.
+
+af right_only() {
+    l = r;
+}
+
+
+
+// Clips peaks beyond ±limit.
+//
+// limit:
+//
+//      1.0 = no clipping
+//      0.8 = gentle clipping
+//      0.5 = strong clipping
+//
+
+
+af hard_clip(limit) {
+
+    l = clamp(l, -limit, limit);
+    r = clamp(r, -limit, limit);
+
+}
+
+
+
+// Amplifies then clips the waveform.
+//
+// gain:
+//
+//      1.0 = unchanged
+//      2.0 = light distortion
+//      4.0 = heavy distortion
+
+
+af distortion(gain) {
+
+    l = clamp(l * gain, -1, 1);
+    r = clamp(r * gain, -1, 1);
+
+}
+
+
+
+// Removes quiet signals.
+// threshold:  0.0 = disabled,  0.02 = light gate,  0.05 = moderate gate
+//
+// Recommended:  0.0 - 0.2
+af gate(threshold) {
+
+    if abs(l) < threshold {
+        l = 0;
+    }
+
+    if abs(r) < threshold {
+        r = 0;
+    }
+
+}
+
+
+
+// Periodically changes the volume.
+// freq:  Tremolo speed in Hz.
+// depth:   0.0 = disabled, 1.0 = full tremolo
+// Recommended:  freq:  2 - 10, depth:  0.2 - 0.8
+
+af tremolo(freq, depth) {
+
+    let mod = (sin(time * 6.283185 * freq) + 1) / 2;
+
+    mod = (1 - depth) + depth * mod;
+
+    l = l * mod;
+    r = r * mod;
+}
+
+
+
+// Multiplies the signal by a sine wave.
+// freq: Modulation frequency (Hz)
+// Recommended:   20 - 1000
+af ring(freq) {
+
+    let mod = sin(time * 6.283185 * freq);
+
+    l = l * mod;
+    r = r * mod;
+}
+
+
+
+// Gradually increases volume.
+// duration: Fade length in seconds.
+// Recommended:    0.5 - 10.0
+
+af fade_in(duration) {
+
+    let t = clamp(time / duration, 0, 1);
+
+    l = l * t;
+    r = r * t;
+}
+
+
+
+// Reduces sample precision.
+// levels:      Higher = cleaner, Lower = more distortion
+//
+// Recommended:      8 - 1024
+
+af crusher(levels) {
+
+    l = round(l * levels) / levels;
+    r = round(r * levels) / levels;
+}
+
+
+
+// Converts all negative samples into positive samples.
+// Produces a harsh, distorted tone.
+
+af rectify() {
+
+    l = abs(l);
+    r = abs(r);
+}

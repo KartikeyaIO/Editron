@@ -1,42 +1,55 @@
 import std::core;
 
-
+// Increases Red and Decreases Blue
 filter sepia() {
     r = r * 1.2;
     b = b * 0.8;
 }
 
+
+// Increases local contrast among midtones, strength recommended = 0.0 - 2.0
 filter hdr(strength) {
     r = clamp(r + strength * (r - 128), 0, 255);
     g = clamp(g + strength * (g - 128), 0, 255);
     b = clamp(b + strength * (b - 128), 0, 255);
 }
+
+
+//Uses gamma correction to brighten shadows before scaling intensity.
+//Produces a softer HDR look than hdr(). Strength recommended = 0.5 - 2.0
 filter hdr2(strength) {
     r = clamp(pow(r / 255, 0.8) * 255 * strength, 0, 255);
     g = clamp(pow(g / 255, 0.8) * 255 * strength, 0, 255);
     b = clamp(pow(b / 255, 0.8) * 255 * strength, 0, 255);
 }
+
+// Boosts orange in highlights and pushes blue towards teal, amount recommended = 0.0 - 2.0
 filter teal_orange(amount) {
     r = clamp(r + amount * 25, 0, 255);
     g = clamp(g - amount * 10, 0, 255);
     b = clamp(b + amount * 20, 0, 255);
 }
 
+// Produces Faded analog film appearance
 filter vintage() {
     r = ((r * 1.2 - 128) * 0.9) + 128;
     g = ((g - 128) * 0.9) + 128;
     b = ((b * 0.8 - 128) * 0.9) + 128;
 }
 
+// Makes the image feel warmer
 filter warm() {
     r = r * 1.1;
     b = b * 0.9;
 }
 
+// Makes the image feel colder
 filter cool() {
     r = r * 0.9;
     b = b * 1.1;
 }
+
+// Increases contrast around the midpoint, making colors appear richer and more vibrant.
 
 filter vivid() {
     r = ((r - 128) * 1.3) + 128;
@@ -44,12 +57,15 @@ filter vivid() {
     b = ((b - 128) * 1.3) + 128;
 }
 
+
+// reduces contrast, giving colors a flatter appearance
 filter muted() {
     r = ((r - 128) * 0.8) + 128;
     g = ((g - 128) * 0.8) + 128;
     b = ((b - 128) * 0.8) + 128;
 }
 
+// tint effect based on channel ------------------------------------------------------------
 filter red_tint() {
     r = r * 1.4;
 }
@@ -61,15 +77,134 @@ filter green_tint() {
 filter blue_tint() {
     b = b * 1.4;
 }
+// ----------------------------------------------------------------------------------------
 
+// Enchances green and blue
 filter cyanotype() {
     g = g * 1.1;
     b = b * 1.3;
 }
 
-
+// Converts to a high-contrast monochrome image
 filter noir() {
     r = (((r + g + b) / 3 - 128) * 2.0) + 128;
     g = (((r + g + b) / 3 - 128) * 2.0) + 128;
     b = (((r + g + b) / 3 - 128) * 2.0) + 128;
+}
+
+
+// amount
+// 0.0 = grayscale
+// 1.0 = unchanged
+// >1.0 = more saturated
+filter saturation(amount) {
+
+    gray = (r + g + b) / 3;
+
+    r = lerp(gray, r, amount);
+    g = lerp(gray, g, amount);
+    b = lerp(gray, b, amount);
+
+}
+
+// amount
+// 0 = none
+// 1 = full fade
+filter fade(amount) {
+
+    r = lerp(r, 255, amount * 0.15);
+    g = lerp(g, 255, amount * 0.15);
+    b = lerp(b, 255, amount * 0.15);
+
+}
+
+// amount recomended = 0.0 - 3.0 ------------------------------------------------------------------------------------------------
+filter purple_tint(amount) {
+
+    r = r + amount * 20;
+    b = b + amount * 30;
+
+}
+
+
+filter amber_tint(amount) {
+
+    r = r + amount * 30;
+    g = g + amount * 15;
+
+}
+
+filter moonlight(amount) {
+
+    r = r * (1 - amount * 0.2);
+    g = g * (1 - amount * 0.1);
+    b = b * (1 + amount * 0.2);
+
+}
+
+
+filter sunset(amount) {
+
+    r = r * (1 + amount * 0.3);
+    g = g * (1 + amount * 0.1);
+    b = b * (1 - amount * 0.2);
+
+}
+
+filter forest(amount) {
+
+    r = r * (1 - amount * 0.1);
+    g = g * (1 + amount * 0.3);
+    b = b * (1 - amount * 0.05);
+
+}
+
+filter autumn(amount) {
+
+    r = r * (1 + amount * 0.3);
+    g = g * (1 + amount * 0.15);
+    b = b * (1 - amount * 0.25);
+
+}
+
+// -----------------------------------------------------------------------------------------------------------
+
+// Produces the classic cross-processed film look
+filter cross_process() {
+
+    r = pow(r / 255.0, 0.85) * 255;
+    g = pow(g / 255.0, 1.10) * 255;
+    b = pow(b / 255.0, 1.25) * 255;
+
+}
+
+
+// amount recommended = 0.0 - 2.0 
+filter bleach_bypass(amount) {
+
+    gray = (r + g + b) / 3;
+
+    r = lerp(r, gray, amount * 0.4);
+    g = lerp(g, gray, amount * 0.4);
+    b = lerp(b, gray, amount * 0.4);
+
+    r = ((r - 128) * (1 + amount * 0.5)) + 128;
+    g = ((g - 128) * (1 + amount * 0.5)) + 128;
+    b = ((b - 128) * (1 + amount * 0.5)) + 128;
+
+}
+
+// amount recommended = 0.0 - 2.0
+filter vibrance(amount) {
+
+    avg = (r + g + b) / 3;
+
+    dr = abs(r - avg);
+    dg = abs(g - avg);
+    db = abs(b - avg);
+
+    r = lerp(r, r + dr, amount);
+    g = lerp(g, g + dg, amount);
+    b = lerp(b, b + db, amount);
+
 }
